@@ -1,0 +1,16 @@
+## For tests:
+## while :; do date | logger -t test; date | logger -p mail.warn -t mail; sleep 1; done
+
+user = root
+destination = /var/log/cluster
+scoreboard = /var/run/logreplica
+delay = 0.25
+skip_destination_prefixes = /var/log:/var/lib/pgsql/data/logs
+
+[files]
+/var/log/messages
+/var/log/maillog
+
+[hosts]
+first=localhost
+second=127.0.0.1
