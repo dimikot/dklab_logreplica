@@ -3,7 +3,7 @@
 
 user = root
 destination = /var/log/cluster
-scoreboard = /var/run/logreplica
+scoreboard = /var/run/dklab_logreplica.scoreboard
 delay = 0.25
 skip_destination_prefixes = /var/log:/var/lib/pgsql/data/logs
 

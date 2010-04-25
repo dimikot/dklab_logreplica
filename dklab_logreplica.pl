@@ -29,6 +29,7 @@ sub message {
 	my ($level, $msg, @args) = @_;
 	my $pri = ($level == INFO and "INFO" or $level == WARN and "WARN" or $level == ERR and " ERR" or "    ");
 	my $text = (@args? sprintf($msg, @args) : $msg);
+	$text =~ s/\s+$//sg;
 	$text =~ s/^/sprintf("[%-5d %s] ", $$, $pri)/mge;
 	print $text . "\n";
 }
@@ -55,11 +56,11 @@ sub read_config {
 			$options{$k} = $v;
 		} elsif ($section eq "hosts") {
 			my %host = ();
-			$host{orig} = $_;
 			if (m{^([^=\s]+) \s*=\s* (.*)}sx) {
 				$host{alias} = $1;
 				$_ = $2;
 			}
+			$host{orig} = $_;
 			if (m{^([^@]+)@(.*)}s) {
 				$host{user} = $1;
 				$_ = $2;
@@ -181,7 +182,7 @@ sub child {
 	my $err = eval { child_process($config, $scoreboard, $host, \*P); 1 }? undef : $@;
 	kill 9, $pid;
 	close(P);
-	message(ERR, "Error from SSH: $err") if $err;
+	message(ERR, "Message from SSH watcher: $err") if $err;
 }
 
 
@@ -194,8 +195,7 @@ sub child_process {
 		if (m/^==>\s*(.*)\s*<==/s) {
 			if ($1) {
 				# Start of data block.
-				$cur = unpack_scoreboard_item($1);
-				$scoreboard->{$cur->{file}} = $cur;
+				$cur = unpack_scoreboard_item($1, $host->{orig});
 				my $dest = get_dest_file($config, $cur->{file});
 				if (!defined $dest) {
 					$cur = undef;
@@ -207,13 +207,13 @@ sub child_process {
 				}
 			} elsif ($cur) {
 				# End of data block.
-				save_scoreboard($config, $scoreboard);
+				save_scoreboard_item($config, $cur);
+				my $old = select(OUT); $| = 1; select($old);
 				$cur = undef;
-				
 			}
 		} elsif ($cur) {
 			print OUT $host_prefix . ": " . $_;
-			$scoreboard->{$cur->{file}}{pos} += length;
+			$cur->{pos} += length;
 		}
 	}
 	close(OUT) if $cur;
@@ -254,11 +254,16 @@ sub load_scoreboard {
 }
 
 
-sub save_scoreboard {
-	my ($config, $scoreboard) = @_;
+sub save_scoreboard_item {
+	my ($config, $item) = @_;
 	my $file = $config->{scoreboard};
-	open(local *F, ">>", $file) or die "Cannot write to $file: $!\n";
+	open(local *F, "+>>", $file) or die "Cannot write to $file: $!\n";
 	flock(F, LOCK_EX);
+	seek(F, 0, 0);
+	local $/;
+	my $packed = <F>;
+	my $scoreboard = unpack_scoreboard($packed);
+	$scoreboard->{"$item->{host}|$item->{file}"} = $item;
 	seek(F, 0, 0);
 	truncate(F, 0);
 	print F pack_scoreboard($scoreboard);
@@ -269,12 +274,6 @@ sub save_scoreboard {
 sub pack_wildcards {
 	my ($wildcards) = @_;
 	return join("\n", @$wildcards);
-}
-
-
-sub pack_scoreboard {
-	my ($scoreboard) = @_;
-	return join("\n", map { pack_scoreboard_item($scoreboard->{$_}) } sort keys %$scoreboard) . "\n";
 }
 
 
@@ -363,7 +362,7 @@ sub tail_follow {
 			if ($inode == $sb->{inode}) {
 				seek(F, $sb->{pos}, 0);
 			} else {
-				warn "File $file rotated, reading from the beginning.\n";
+				warn "File $file rotated (old_inode=$sb->{inode}, new_inode=$inode), reading from the beginning.\n";
 				$sb->{pos} = 0;
 				$sb->{inode} = $inode;
 			}
@@ -397,24 +396,31 @@ sub unpack_scoreboard {
 		chomp;
 		next if !$_;
 		my $item = unpack_scoreboard_item($_);
-		$scoreboard{$item->{file}} = $item;
+		$scoreboard{"$item->{host}|$item->{file}"} = $item;
 	}
 	return \%scoreboard;
 }
 
+sub pack_scoreboard {
+	my ($scoreboard) = @_;
+	return join("\n", map { pack_scoreboard_item($scoreboard->{$_}) } sort keys %$scoreboard) . "\n";
+}
+
 sub unpack_scoreboard_item {
-	my ($packed) = @_;
-	my ($fn, $inode, $pos) = split /:/, $packed, 3;
+	my ($packed, $def_host) = @_;
+	$packed =~ s/^\s+|\s+$//sg;
+	my ($fn, $inode, $pos, $host) = split /\|/, $packed, 4;
 	return {
 		file => $fn,
 		inode => $inode,
 		pos => $pos,
+		host => $host || $def_host,
 	};
 }
 
 sub pack_scoreboard_item {
 	my ($item) = @_;
-	return "$item->{file}:$item->{inode}:$item->{pos}";
+	return "$item->{file}|$item->{inode}|$item->{pos}|" . ($item->{host}||"");
 }
 
 sub unpack_wildcards {
