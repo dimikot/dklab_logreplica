@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 use strict;
-use Fcntl qw(:flock);
+use Fcntl qw(:DEFAULT :flock);
 use IO::Select;
 use File::Path;
 use File::Basename;
@@ -257,7 +257,7 @@ sub load_scoreboard {
 sub save_scoreboard_item {
 	my ($config, $item) = @_;
 	my $file = $config->{scoreboard};
-	open(local *F, "+>>", $file) or die "Cannot write to $file: $!\n";
+	sysopen(local *F, $file, O_RDWR | O_CREAT) or die "Cannot write to $file: $!\n";
 	flock(F, LOCK_EX);
 	seek(F, 0, 0);
 	local $/;
