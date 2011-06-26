@@ -14,7 +14,7 @@ GetOptions("p=s" => \$pid_file);
 sub usage {
 	die 
 		"dklab_logreplica: real-time log files replication from multiple hosts over SSH.\n" .
-		"Version: 0.01, 2010-04-25\n" .
+		"Version: 1.01, 2010-04-25\n" .
 		"Author: dkLab, http://dklab.ru/lib/dklab_logreplica/\n" . 
 		"License: LGPL\n" .
 		"Usage:\n" .
@@ -241,12 +241,20 @@ sub get_dest_file {
 	return $path;
 }
 
+sub lock_scoreboard {
+	my ($config) = @_;
+	my $file = $config->{scoreboard} . ".lck";
+	open(my $LCK, ">>", $file) or die "Cannot open $file for writing: $!\n";
+	flock($LCK, LOCK_EX);
+	return $LCK;
+}
 
 sub load_scoreboard {
 	my ($config) = @_;
+	my $guard = lock_scoreboard($config);
+
 	my $file = $config->{scoreboard};
 	open(local *F, $file) or return {};
-	flock(F, LOCK_SH);
 	local $/;
 	my $packed = <F>;
 	close(F);
@@ -256,18 +264,28 @@ sub load_scoreboard {
 
 sub save_scoreboard_item {
 	my ($config, $item) = @_;
+	my $guard = lock_scoreboard($config);
+
+    # Read current contents.
+    my $scoreboard = {};
 	my $file = $config->{scoreboard};
-	sysopen(local *F, $file, O_RDWR | O_CREAT) or die "Cannot write to $file: $!\n";
-	flock(F, LOCK_EX);
-	seek(F, 0, 0);
-	local $/;
-	my $packed = <F>;
-	my $scoreboard = unpack_scoreboard($packed);
+	if (open(local *F, $file)) {
+    	local $/;
+	    my $packed = <F>;
+    	close(F);
+    	$scoreboard = unpack_scoreboard($packed);
+    }
+
+    # Create tmp file.
+	my $tmp = $file . ".tmp";
+	open(local *W, ">$tmp") or die "Cannot write to $tmp: $!\n";
 	$scoreboard->{"$item->{host}|$item->{file}"} = $item;
-	seek(F, 0, 0);
-	truncate(F, 0);
-	print F pack_scoreboard($scoreboard);
-	close(F);
+	print W (pack_scoreboard($scoreboard)) or die "Print to $tmp failed: $!\n";
+	close(W);
+	
+	# Rename tmp to real file.
+#	unlink($file);
+	rename($tmp, $file) or die "Cannot rename $tmp to $file: $!\n";
 }
 
 
