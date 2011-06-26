@@ -5,6 +5,7 @@ use IO::Select;
 use File::Path;
 use File::Basename;
 use Getopt::Long;
+use Digest::MD5 qw(md5_hex);
 
 
 my $pid_file;
@@ -14,8 +15,8 @@ GetOptions("p=s" => \$pid_file);
 sub usage {
 	die 
 		"dklab_logreplica: real-time log files replication from multiple hosts over SSH.\n" .
-		"Version: 1.01, 2010-04-25\n" .
-		"Author: dkLab, http://dklab.ru/lib/dklab_logreplica/\n" . 
+		"Version: 1.10, 2011-06-27\n" .
+		"Author: dkLab, http://en.dklab.ru/lib/dklab_logreplica/\n" .
 		"License: LGPL\n" .
 		"Usage:\n" .
 		"  $0 path-to-config-file\n";
@@ -99,7 +100,7 @@ sub escapeshellarg {
 }
 
 
-sub spawn {
+sub spawn_all {
 	my ($config, $pids) = @_;
 	my $ppid = $$;
 	foreach my $host (@{$config->{HOSTS}}) {
@@ -161,7 +162,7 @@ sub child {
 		"perl -e " . join(" ", map { escapeshellarg($_) } (
 			DATA() . "\n" . "DATA_main();\n",
 			pack_wildcards($config->{FILES}),
-			pack_scoreboard($scoreboard),
+			pack_scoreboard($scoreboard, $host->{host}),
 			$config->{delay},
 		)),
 	);
@@ -179,23 +180,27 @@ sub child {
 	if (!$pid) {
 		exec($cmd) or die "Cannot run SSH: $!\n";
 	}
-	my $err = eval { child_process($config, $scoreboard, $host, \*P); 1 }? undef : $@;
+	my $err = eval { child_monitoring_process($config, $host, \*P); 1 }? undef : $@;
 	kill 9, $pid;
 	close(P);
 	message(ERR, "Message from SSH watcher: $err") if $err;
 }
 
 
-sub child_process {
-	my ($config, $scoreboard, $host, $pipe) = @_;
+sub child_monitoring_process {
+	my ($config, $host, $pipe) = @_;
 	my $host_prefix = $host->{alias} || $host->{orig};
 	local *OUT;
 	my $cur = undef;
 	while (<$pipe>) {
-		if (m/^==>\s*(.*)\s*<==/s) {
+		if (m/^==>\s*(.*?)\s*<==/s) {
 			if ($1) {
 				# Start of data block.
-				$cur = unpack_scoreboard_item($1, $host->{orig});
+				my $packed = $1;
+#				open(local *L, ">>/var/log/tmp/$$");
+#				print L "[" . scalar(localtime) . "] [$host_prefix] [" . $packed . "]\n";
+#				close(L);
+				$cur = unpack_scoreboard_item($packed, $host->{orig});
 				my $dest = get_dest_file($config, $cur->{file});
 				if (!defined $dest) {
 					$cur = undef;
@@ -219,6 +224,7 @@ sub child_process {
 	close(OUT) if $cur;
 }
 
+
 sub get_dest_file {
 	my ($config, $path) = @_;
 	if ($path =~ m{(^|/)\.\.?(/|$)}s) {
@@ -241,52 +247,48 @@ sub get_dest_file {
 	return $path;
 }
 
-sub lock_scoreboard {
-	my ($config) = @_;
-	my $file = $config->{scoreboard} . ".lck";
-	open(my $LCK, ">>", $file) or die "Cannot open $file for writing: $!\n";
-	flock($LCK, LOCK_EX);
-	return $LCK;
-}
+
+#
+# Scoreboard persistence abstraction.
+# We use a separated file for each log source to minitize IO traffic
+# and locking concurrency (the previous version uses a single file,
+# but it results to strange bugs with file corruption; unfortunately
+# I cannod discover their cause, they seems as Perl bugs or unexpected
+# signals correlation).
+#
 
 sub load_scoreboard {
 	my ($config) = @_;
-	my $guard = lock_scoreboard($config);
-
-	my $file = $config->{scoreboard};
-	open(local *F, $file) or return {};
-	local $/;
-	my $packed = <F>;
-	close(F);
-	return unpack_scoreboard($packed);
+	my @lines;
+	foreach my $file (glob("$config->{scoreboard}/*.txt")) {
+	    open(my $f, $file) or next;
+	    flock($f, LOCK_SH);
+	    my $line = <$f>;
+	    close($f);
+	    chomp $line;
+	    push(@lines, $line . "\n");
+	}
+	return unpack_scoreboard(join "", @lines);
 }
 
 
 sub save_scoreboard_item {
 	my ($config, $item) = @_;
-	my $guard = lock_scoreboard($config);
-
-    # Read current contents.
-    my $scoreboard = {};
-	my $file = $config->{scoreboard};
-	if (open(local *F, $file)) {
-    	local $/;
-	    my $packed = <F>;
-    	close(F);
-    	$scoreboard = unpack_scoreboard($packed);
-    }
-
-    # Create tmp file.
-	my $tmp = $file . ".tmp";
-	open(local *W, ">$tmp") or die "Cannot write to $tmp: $!\n";
-	$scoreboard->{"$item->{host}|$item->{file}"} = $item;
-	print W (pack_scoreboard($scoreboard)) or die "Print to $tmp failed: $!\n";
-	close(W);
-	
-	# Rename tmp to real file.
-#	unlink($file);
-	rename($tmp, $file) or die "Cannot rename $tmp to $file: $!\n";
+	my $dir = $config->{scoreboard};
+	if (!-d $dir) {
+		mkdir($dir) or die "Cannot mkdir('$dir'): $!\n";
+	}
+	my $fname = $dir . "/" . md5_hex("$item->{host}|$item->{file}") . ".txt";
+	sysopen(my $f, $fname, O_RDWR|O_CREAT) or die "Cannot open $fname for writing: $!\n";
+	flock($f, LOCK_EX) or die "Cannot LOCK_EX $fname: $!\n";
+	truncate($f, 0) or die "Cannot truncate $fname: $!\n";;
+	print $f (pack_scoreboard_item($item) . "\n");
+	close($f);
 }
+
+#
+# End of scoreboard persistence.
+#
 
 
 sub pack_wildcards {
@@ -330,7 +332,7 @@ sub main {
 	};
 
 	while (1) {
-		spawn($config, \%pids);
+		spawn_all($config, \%pids);
 		sleep 1;
 	}
 	
@@ -357,13 +359,13 @@ sub DATA_main {
 	defined $p_scoreboard or die "Scoreboard data expected!\n";
 	defined $p_delay or die "Delay value expected!\n";
 	my $wildcards = unpack_wildcards($p_wildcards);
-	my $scoreboard = unpack_scoreboard($p_scoreboard);
+	my $scoreboard_hash = { map { ($_->{file} => $_) } @{unpack_scoreboard($p_scoreboard)} };
 	$| = 1;
-	tail_follow($wildcards, $scoreboard, $p_delay);
+	tail_follow($wildcards, $scoreboard_hash, $p_delay);
 }
 
 sub tail_follow {
-	my ($wildcards, $scoreboard, $delay) = @_;
+	my ($wildcards, $scoreboard_hash, $delay) = @_;
 	my $last_ping = 0;
 	while (1) {
 		my @files = wildcards_to_pathes($wildcards);
@@ -371,7 +373,7 @@ sub tail_follow {
 		foreach my $file (@files) {
 			my @stat = stat($file);
 			my $inode = $stat[1];
-			my $sb = $scoreboard->{$file} ||= { file => $file, inode => $inode, pos => $stat[7] };
+			my $sb = $scoreboard_hash->{$file} ||= { file => $file, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
 				warn "Cannot open $file: $!\n";
@@ -409,19 +411,23 @@ sub wildcards_to_pathes {
 
 sub unpack_scoreboard {
 	my ($packed) = @_;
-	my %scoreboard = ();
+	my @scoreboard = ();
 	foreach (split /\n/s, $packed) {
 		chomp;
 		next if !$_;
-		my $item = unpack_scoreboard_item($_);
-		$scoreboard{"$item->{host}|$item->{file}"} = $item;
+		push @scoreboard, unpack_scoreboard_item($_);
 	}
-	return \%scoreboard;
+	return \@scoreboard;
 }
 
 sub pack_scoreboard {
-	my ($scoreboard) = @_;
-	return join("\n", map { pack_scoreboard_item($scoreboard->{$_}) } sort keys %$scoreboard) . "\n";
+	my ($scoreboard, $only_host) = @_;
+	return join(
+		"\n",
+		map { pack_scoreboard_item($_) }
+		grep { !defined($only_host) || $_->{host} eq $only_host }
+		@$scoreboard
+	) . "\n";
 }
 
 sub unpack_scoreboard_item {
@@ -438,7 +444,7 @@ sub unpack_scoreboard_item {
 
 sub pack_scoreboard_item {
 	my ($item) = @_;
-	return "$item->{file}|$item->{inode}|$item->{pos}|" . ($item->{host}||"");
+	return "$item->{file}|$item->{inode}|$item->{pos}|" . ($item->{host}||""); #89
 }
 
 sub unpack_wildcards {
