@@ -14,10 +14,10 @@ GetOptions("p=s" => \$pid_file);
 
 sub usage {
 	die 
-		"dklab_logreplica: real-time log files replication from multiple hosts over SSH.\n" .
+		"dklab_logreplica: gathers logs from multiple machines into one place in realtime.\n" .
 		"Version: 1.10, 2011-06-27\n" .
 		"Author: dkLab, http://en.dklab.ru/lib/dklab_logreplica/\n" .
-		"License: LGPL\n" .
+		"License: GPL\n" .
 		"Usage:\n" .
 		"  $0 path-to-config-file\n";
 }
