@@ -40,24 +40,24 @@ SYNOPSIS
 THE PROBLEM WHICH IS SOLVED
 ---------------------------
 
-If you have many machines in your cluster which performs different tasks 
+If you have many machines in your cluster which perform different tasks 
 (e.g. SQL server, web-frontend, balancer, mail server etc.), you may want 
-to aggregate logs from all these machines in a single place to monitor them 
-or preform various statistics collection. Of course you may configure 
+to aggregate logs from all these machines to a single place to monitor them 
+or to preform various statistics collections. Of course you may configure 
 syslog or syslog-ng to pass all the data over the network, but if you do
 so, you are face to face with the following problems:
 
 1. Due to network problems pieces of logs may not be correctly transfered,
    so you may loose data.
 2. It is quite hard to keep the syslog configuration in sync with real
-   world (which is changing time to time).
-3. Not all services supports priting into syslog (e.g. apache supports
-   only file-based logs writing). So you have to use named pipe, and your 
+   world (which is changing time to time, you know).
+3. Not all services support putting logs into syslog (e.g. apache supports
+   only file-based logs writing). So you have to use named pipes, and your 
    configs grow.
 4. Quite oftenly you want to replicate logs filenames by their wildcards
    specified. Syslog cannot do that.
 5. At least, it is good to hold all logs at the machines at which they
    are produced (with e.g. weekly rotation) in addition to send them
-   into a logging server. So your configs are growing again...
+   to a logging server. So your configs are growing again...
 
 Dklab_logreplica solves all that problems.
