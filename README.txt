@@ -28,7 +28,7 @@ SYNOPSIS
    access to all these machines from the log server without
    entering a password.
 
-5. Now run /etc/init.d/dklab_logreplica
+5. Now run /etc/init.d/dklab_logreplica start
    After all that steps logs from source machines will be automatically
    and continuosly replicated to the log server in the background (with 
    support of reconnects and resumes if the connection is not stable). 

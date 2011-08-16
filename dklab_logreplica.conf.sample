@@ -1,16 +1,24 @@
-## For tests:
-## while :; do date | logger -t test; date | logger -p mail.warn -t mail; sleep 1; done
-
-user = root
+# What directory at the current machine to store logs to.
 destination = /var/log/cluster
-scoreboard = /var/run/dklab_logreplica.scoreboard
-delay = 0.25
+
+# Skip these log files prefixes while storing to destination directory.
 skip_destination_prefixes = /var/log:/var/lib/pgsql/data/logs
 
-[files]
-/var/log/messages
-/var/log/maillog
+# Path to internal state directory (may not change).
+scoreboard = /var/run/dklab_logreplica.scoreboard
 
+# Time interval to sleep before log growth checks.
+delay = 0.25
+
+# Default user to connect to remote hosts.
+user = root
+
+# What files to monitor at all of logs source machines.
+[files]
+/var/log/{messages,maillog}
+/var/log/httpd/*_log
+
+# What hosts to connect to gather logs from.
 [hosts]
-first=localhost
-second=127.0.0.1
+first=machine1.example.com
+second=nobody@machine2.example.com
