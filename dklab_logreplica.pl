@@ -13,7 +13,7 @@ GetOptions("p=s" => \$pid_file);
 
 
 sub usage {
-	die 
+	die
 		"dklab_logreplica: gathers logs from multiple machines into one place in realtime.\n" .
 		"Version: 1.10, 2011-06-27\n" .
 		"Author: dkLab, http://en.dklab.ru/lib/dklab_logreplica/\n" .
@@ -76,14 +76,14 @@ sub read_config {
 			push @{$options{FILES}}, $_;
 		}
 	}
-	
+
 	# Check options and assign defaults.
 	$options{user} or die "Option 'user' is not specified at $file\n";
 	$options{destination} or die "Option 'destination' is not specified at $file\n";
 	$options{scoreboard} or die "Option 'scoreboard' is not specified at $file\n";
 	$options{delay} ||= 1.0;
 	$options{skip_destination_prefixes} ||= undef;
-	
+
 	message(INFO, "Loaded %s: %d hosts, %d filename wildcards", $file, scalar @{$options{HOSTS}}, scalar @{$options{FILES}});
 	return \%options;
 }
@@ -236,8 +236,8 @@ sub get_dest_file {
 		foreach my $prefix (split /:/s, $prefixes) {
 			$prefix .= "/" if substr($prefix, -1) ne "/";
 			if (0 == index($path, $prefix)) {
-				 $path = substr($path, length($prefix));
-				 last;
+				$path = substr($path, length($prefix));
+				last;
 			}
 		}
 	}
@@ -261,12 +261,12 @@ sub load_scoreboard {
 	my ($config) = @_;
 	my @lines;
 	foreach my $file (glob("$config->{scoreboard}/*.txt")) {
-	    open(my $f, $file) or next;
-	    flock($f, LOCK_SH);
-	    my $line = <$f>;
-	    close($f);
-	    chomp $line;
-	    push(@lines, $line . "\n");
+		open(my $f, $file) or next;
+		flock($f, LOCK_SH);
+		my $line = <$f>;
+		close($f);
+		chomp $line;
+		push(@lines, $line . "\n");
 	}
 	return unpack_scoreboard(join "", @lines);
 }
@@ -312,11 +312,11 @@ sub main {
 	if ($pid_file) {
 		open(local *F, ">", $pid_file); print F $$; close(F);
 	}
-	
+
 	my $config = read_config($conf);
 	die "No hosts specified in $conf!\n" if !$config->{HOSTS};
 	die "No files to monitor specified in $conf!\n" if !$config->{FILES};
-	
+
 	my %pids = ();
 
 	$SIG{CHLD} = 'IGNORE';
@@ -335,7 +335,6 @@ sub main {
 		spawn_all($config, \%pids);
 		sleep 1;
 	}
-	
 }
 
 
@@ -373,6 +372,7 @@ sub tail_follow {
 		foreach my $file (@files) {
 			my @stat = stat($file);
 			my $inode = $stat[1];
+			my $sb_sent = 0;
 			my $sb = $scoreboard_hash->{$file} ||= { file => $file, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
@@ -382,26 +382,36 @@ sub tail_follow {
 			if ($inode == $sb->{inode}) {
 				seek(F, $sb->{pos}, 0);
 			} else {
-				warn "File $file rotated (old_inode=$sb->{inode}, new_inode=$inode), reading from the beginning.\n";
+				warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
 				$sb->{pos} = 0;
 				$sb->{inode} = $inode;
+				print_scoreboard_item($sb);
+				$sb_sent = 1;
 			}
-			my $i = 0;
-			for (; <F>; $i++, $printed++) {
-				print "==> " . pack_scoreboard_item($sb) . " <==\n" if !$i;
+			while (<F>) {
+				if (!$sb_sent) {
+					print_scoreboard_item($sb);
+					$sb_sent = 1;
+				}
 				print;
+				$printed = 1;
 				$sb->{pos} += length;
 			}
-			print "==>  <==\n" if $i; # end of data
+			print_scoreboard_item(undef) if $sb_sent; # end of data
 		}
 		if (!$printed) {
 			if (time() - $last_ping > 5) {
-				print "==>  <==\n"; # ping
+				print_scoreboard_item(undef); # ping
 				$last_ping = time();
 			}
 			select(undef, undef, undef, $delay);
 		}
 	}
+}
+
+sub print_scoreboard_item {
+	my ($item) = @_;
+	print "==> " . ($item? pack_scoreboard_item($item) : "") . " <==\n";
 }
 
 sub wildcards_to_pathes {
