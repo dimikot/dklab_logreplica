@@ -374,13 +374,13 @@ use Fcntl qw(:flock);
 
 my $my_host = "?";
 
-sub DIE($) {
+sub my_die($) {
 	my ($s) = @_;
 	$s =~ s/^/$my_host says: /mg;
 	die $s;
 }
 
-sub WARN($) {
+sub my_warn($) {
 	my ($s) = @_;
 	$s =~ s/^/$my_host says: /mg;
 	warn $s;
@@ -389,26 +389,26 @@ sub WARN($) {
 sub DATA_main {
 	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host) = @ARGV;
 	$my_host = $p_my_host;
-	defined $p_wildcards or DIE "Filename wildcards expected!\n";
-	defined $p_scoreboard or DIE "Scoreboard data expected!\n";
-	defined $p_delay or DIE "Delay value expected!\n";
+	defined $p_wildcards or my_die "Filename wildcards expected!\n";
+	defined $p_scoreboard or my_die "Scoreboard data expected!\n";
+	defined $p_delay or my_die "Delay value expected!\n";
 	my $wildcards = unpack_wildcards($p_wildcards);
 	my $scoreboard_hash = { map { ($_->{file} => $_) } @{unpack_scoreboard($p_scoreboard)} };
 	$| = 1;
 	# Allow no more than 1 process from a particular server. This avoids
 	# stalled scripts when connection is not closed properly.
 	my $lock_file = "/var/run/dklab_logreplica.$p_server_id.lock";
-	open(LOCK, "+>>", $lock_file) or DIE "Cannot write to $lock_file: $!\n";
+	open(LOCK, "+>>", $lock_file) or my_die "Cannot write to $lock_file: $!\n";
 	if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
 		seek(LOCK, 0, 0);
 		my $pid = int(<LOCK>);
-		WARN "Somebody else (PID=$pid) is already running for server_id=$p_server_id, killing him.\n";
+		my_warn "Somebody else (PID=$pid) is already running for server_id=$p_server_id, killing him.\n";
 		kill(15, $pid);
 		sleep(2);
 		if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
-			DIE "He is still alive after killing; cannot continue, aborting.\n";
+			my_die "He is still alive after killing; cannot continue, aborting.\n";
 		} else {
-			WARN "OK, I am the one now! Continue.\n";
+			my_warn "OK, I am the one now! Continue.\n";
 		}
 	}
 	truncate(LOCK, 0);
@@ -431,13 +431,13 @@ sub tail_follow {
 			my $sb = $scoreboard_hash->{$file} ||= { file => $file, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
-				WARN "Cannot open $file: $!\n";
+				my_warn "Cannot open $file: $!\n";
 				next;
 			}
 			if ($inode == $sb->{inode}) {
 				seek(F, $sb->{pos}, 0);
 			} else {
-				WARN "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
+				my_warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
 				$sb->{pos} = 0;
 				$sb->{inode} = $inode;
 				print_scoreboard_item($sb);
