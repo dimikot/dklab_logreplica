@@ -158,6 +158,7 @@ sub child {
 			pack_scoreboard($scoreboard, $host->{host}),
 			$config->{delay},
 			$config->{server_id},
+			($host->{alias} || $host->{host})
 		)),
 	);
 	# We cannot get rid of escapeshellarg(), because config ssh_options
@@ -371,28 +372,43 @@ main();
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
 
+my $my_host = "?";
+
+sub DIE($) {
+	my ($s) = @_;
+	$s =~ s/^/$my_host says: /mg;
+	die $s;
+}
+
+sub WARN($) {
+	my ($s) = @_;
+	$s =~ s/^/$my_host says: /mg;
+	warn $s;
+}
+
 sub DATA_main {
-	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id) = @ARGV;
-	defined $p_wildcards or die "Filename wildcards expected!\n";
-	defined $p_scoreboard or die "Scoreboard data expected!\n";
-	defined $p_delay or die "Delay value expected!\n";
+	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host) = @ARGV;
+	$my_host = $p_my_host;
+	defined $p_wildcards or DIE "Filename wildcards expected!\n";
+	defined $p_scoreboard or DIE "Scoreboard data expected!\n";
+	defined $p_delay or DIE "Delay value expected!\n";
 	my $wildcards = unpack_wildcards($p_wildcards);
 	my $scoreboard_hash = { map { ($_->{file} => $_) } @{unpack_scoreboard($p_scoreboard)} };
 	$| = 1;
 	# Allow no more than 1 process from a particular server. This avoids
 	# stalled scripts when connection is not closed properly.
 	my $lock_file = "/var/run/dklab_logreplica.$p_server_id.lock";
-	open(LOCK, "+>>", $lock_file) or die "Cannot write to $lock_file: $!\n";
+	open(LOCK, "+>>", $lock_file) or DIE "Cannot write to $lock_file: $!\n";
 	if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
 		seek(LOCK, 0, 0);
 		my $pid = int(<LOCK>);
-		warn "Somebody else (PID=$pid) is already running for server_id=$p_server_id, killing him.\n";
+		WARN "Somebody else (PID=$pid) is already running for server_id=$p_server_id, killing him.\n";
 		kill(15, $pid);
 		sleep(2);
 		if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
-			die "He is still alive after killing; cannot continue, aborting.\n";
+			DIE "He is still alive after killing; cannot continue, aborting.\n";
 		} else {
-			warn "OK, I am the one now! Continue.\n";
+			WARN "OK, I am the one now! Continue.\n";
 		}
 	}
 	truncate(LOCK, 0);
@@ -415,13 +431,13 @@ sub tail_follow {
 			my $sb = $scoreboard_hash->{$file} ||= { file => $file, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
-				warn "Cannot open $file: $!\n";
+				WARN "Cannot open $file: $!\n";
 				next;
 			}
 			if ($inode == $sb->{inode}) {
 				seek(F, $sb->{pos}, 0);
 			} else {
-				warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
+				WARN "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
 				$sb->{pos} = 0;
 				$sb->{inode} = $inode;
 				print_scoreboard_item($sb);
