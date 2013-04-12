@@ -102,6 +102,22 @@ reload () {
 	done
 }
 
+status() {
+	for CONF in $ADDCONFIG; do
+		PIDFILE=${PIDPREFIX}_`basename $CONF`.pid
+		PID=`cat $PIDFILE 2>/dev/null`
+		if [ "$PID" == "" ]; then
+			echo "dklab_logreplica for $CONF is not running (pid file is empty)"
+			exit 1
+		else
+			# Send SIGHUP to process group.
+			kill -s 0 $PID 2>/dev/null || { echo "dklab_logreplica for $CONF is not running (no process with such pid)"; exit 1; }
+		fi
+	done
+	echo "dklab_logreplica for all configs is running"
+}
+
+
 case $1 in
 	start)
 		start
@@ -116,6 +132,9 @@ case $1 in
 	;;
 	reload)
 		reload
+	;;
+	status)
+		status
 	;;
 	*)
 		echo "Usage:"
