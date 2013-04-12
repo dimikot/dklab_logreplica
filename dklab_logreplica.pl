@@ -351,7 +351,7 @@ sub main {
 
 	while (1) {
 		spawn_all($config, \%pids);
-		sleep 1;
+		sleep 10;
 	}
 }
 
