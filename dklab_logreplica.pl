@@ -15,8 +15,8 @@ GetOptions("p=s" => \$pid_file);
 sub usage {
 	die
 		"dklab_logreplica: gathers logs from multiple machines into one place in realtime.\n" .
-		"Version: 1.10, 2011-06-27\n" .
-		"Author: dkLab, http://en.dklab.ru/lib/dklab_logreplica/\n" .
+		"Version: 1.11, 2013-04-12\n" .
+		"Author: Dmitry Koterov, dkLab, http://en.dklab.ru/lib/dklab_logreplica/\n" .
 		"License: GPL\n" .
 		"Usage:\n" .
 		"  $0 path-to-config-file\n";
@@ -83,6 +83,7 @@ sub read_config {
 	$options{scoreboard} or die "Option 'scoreboard' is not specified at $file\n";
 	$options{delay} ||= 1.0;
 	$options{skip_destination_prefixes} ||= undef;
+	$options{server_id} ||= md5_hex(`hostname` . $file);
 
 	message(INFO, "Loaded %s: %d hosts, %d filename wildcards", $file, scalar @{$options{HOSTS}}, scalar @{$options{FILES}});
 	return \%options;
@@ -140,14 +141,6 @@ sub child {
 	# Prepare signals.
 	$SIG{HUP} = 'IGNORE';
 	$SIG{INT} = $SIG{QUIT} = $SIG{TERM} = $SIG{HUP} = sub { $pid && kill 9, $pid; exit(1); };
-	$SIG{ALRM} = sub {
-		if (!kill(0, $ppid)) {
-			# Parent is dead.
-			die "Child $$ terminated, because parent $ppid is not alive\n";
-		}
-		alarm(1);
-	};
-	$SIG{ALRM}->();
 	$pid_file = undef;
 
 	# Create command-line to run SSH.
@@ -164,6 +157,7 @@ sub child {
 			pack_wildcards($config->{FILES}),
 			pack_scoreboard($scoreboard, $host->{host}),
 			$config->{delay},
+			$config->{server_id},
 		)),
 	);
 	# We cannot get rid of escapeshellarg(), because config ssh_options
@@ -180,7 +174,7 @@ sub child {
 	if (!$pid) {
 		exec($cmd) or die "Cannot run SSH: $!\n";
 	}
-	my $err = eval { child_monitoring_process($config, $host, \*P); 1 }? undef : $@;
+	my $err = eval { child_monitoring_process($config, $host, \*P, $ppid); 1 }? undef : $@;
 	kill 9, $pid;
 	close(P);
 	message(ERR, "Message from SSH watcher: $err") if $err;
@@ -188,18 +182,42 @@ sub child {
 
 
 sub child_monitoring_process {
-	my ($config, $host, $pipe) = @_;
+	my ($config, $host, $pipe, $ppid) = @_;
 	my $host_prefix = $host->{alias} || $host->{orig};
 	local *OUT;
+	my $s = IO::Select->new();
+	$s->add($pipe);
 	my $cur = undef;
-	while (<$pipe>) {
+	my $ppid_check_at = 0;
+	my $line_in_lump = 0;
+	while (1) {
+		# Check if the parent still lives (not frequently than once per 1000
+		# lines within a solid block to save time() syscall penalty).
+		# Unfortunately we cannot perform this check with SIGALRM, because
+		# SIGALRM may break the same process'es read() syscall (or any other
+		# syscall), so we have to do it using select().
+		my $time = $line_in_lump < 1000? 0 : time();
+		if ($time > $ppid_check_at + 1) {
+			if (!kill(0, $ppid)) {
+				die "Child $$ terminated, because parent $ppid is not alive\n";
+			}
+			$ppid_check_at = $time;
+			$line_in_lump = 0; # new lump
+		}
+		# Wait for data no more than 1 second (if more, retry with parent check).
+		if ($s->can_read(1)) {
+			$_ = <$pipe>;
+			last if !defined;
+			$line_in_lump++;
+		} else {
+			$line_in_lump = 1e10;
+			next;
+		}
+		# Process the line which was read.
 		if (m/^==>\s*(.*?)\s*<==/s) {
 			if ($1) {
 				# Start of data block.
 				my $packed = $1;
-#				open(local *L, ">>/var/log/tmp/$$");
-#				print L "[" . scalar(localtime) . "] [$host_prefix] [" . $packed . "]\n";
-#				close(L);
 				$cur = unpack_scoreboard_item($packed, $host->{orig});
 				my $dest = get_dest_file($config, $cur->{file});
 				if (!defined $dest) {
@@ -351,15 +369,36 @@ main();
 #######################################################################
 #######################################################################
 sub DATA {{{ return <<'EOT';
+use Fcntl qw(:flock);
 
 sub DATA_main {
-	my ($p_wildcards, $p_scoreboard, $p_delay) = @ARGV;
+	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id) = @ARGV;
 	defined $p_wildcards or die "Filename wildcards expected!\n";
 	defined $p_scoreboard or die "Scoreboard data expected!\n";
 	defined $p_delay or die "Delay value expected!\n";
 	my $wildcards = unpack_wildcards($p_wildcards);
 	my $scoreboard_hash = { map { ($_->{file} => $_) } @{unpack_scoreboard($p_scoreboard)} };
 	$| = 1;
+	# Allow no more than 1 process from a particular server. This avoids
+	# stalled scripts when connection is not closed properly.
+	my $lock_file = "/var/run/dklab_logreplica.$p_server_id.lock";
+	open(LOCK, "+>>", $lock_file) or die "Cannot write to $lock_file: $!\n";
+	if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
+		seek(LOCK, 0, 0);
+		my $pid = int(<LOCK>);
+		warn "Somebody else (PID=$pid) is already running for server_id=$p_server_id, killing him.\n";
+		kill(15, $pid);
+		sleep(2);
+		if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
+			die "He is still alive after killing; cannot continue, aborting.\n";
+		} else {
+			warn "OK, I am the one now! Continue.\n";
+		}
+	}
+	truncate(LOCK, 0);
+	select((select(LOCK), $| = 1)[0]);
+	print LOCK $$ . "\n";
+	# Do not close LOCK!
 	tail_follow($wildcards, $scoreboard_hash, $p_delay);
 }
 
