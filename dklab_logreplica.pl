@@ -6,16 +6,23 @@ use File::Path;
 use File::Basename;
 use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
+use POSIX;
 
 
-my $pid_file;
-GetOptions("p=s" => \$pid_file);
+my ($pid_file, $log_priority, $log_tag, $daemonize);
+GetOptions(
+	"p=s" => \$pid_file,
+	"log-priotity=s" => \$log_priority,
+	"log-tag=s" => \$log_tag,
+	"daemonize" => \$daemonize,
+);
+
 
 
 sub usage {
 	die
 		"dklab_logreplica: gathers logs from multiple machines into one place in realtime.\n" .
-		"Version: 1.11, 2013-04-12\n" .
+		"Version: 1.12, 2013-04-13\n" .
 		"Author: Dmitry Koterov, dkLab, http://en.dklab.ru/lib/dklab_logreplica/\n" .
 		"License: GPL\n" .
 		"Usage:\n" .
@@ -162,7 +169,7 @@ sub child {
 		)),
 	);
 	# We cannot get rid of escapeshellarg(), because config ssh_options
-	# may be passed as a plain text with multiple space-delimited 
+	# may be passed as a plain text with multiple space-delimited
 	# options and quotes.
 	my $cmd = join " ", map { escapeshellarg($_) } @cmd;
 	$cmd =~ s/^(\S+)/$1 $config->{ssh_options}/s if $config->{ssh_options};
@@ -173,7 +180,9 @@ sub child {
 	$pid = open(local *P, "-|");
 	defined $pid or die "Cannot fork(): $!\n";
 	if (!$pid) {
-		exec($cmd) or die "Cannot run SSH: $!\n";
+		# We use "exec" prefix to avoid creation of intermediate sh and
+		# execute the ssh process as a direct child of the current one.
+		exec("exec $cmd") or die "Cannot run SSH: $!\n";
 	}
 	my $err = eval { child_monitoring_process($config, $host, \*P, $ppid); 1 }? undef : $@;
 	kill 9, $pid;
@@ -326,6 +335,26 @@ sub cleanup {
 
 sub main {
 	my $conf = $ARGV[0] or usage();
+
+	if ($log_priority || $log_tag || $daemonize) {
+		if ($daemonize) {
+			POSIX::setsid() or die "Cannot run setsid: $!\n";
+			my $pid = fork();
+			if (!defined $pid) {
+				die "Cannot fork: $!\n";
+			} elsif ($pid) {
+				exit 0;
+			}
+		}
+		$log_priority ||= "local3.info";
+		$log_tag ||= "logreplica";
+		foreach (0 .. (POSIX::sysconf (&POSIX::_SC_OPEN_MAX) || 1024)) {
+			POSIX::close($_);
+		}
+		open(STDIN, "<", "/dev/null");
+		open(STDOUT, "|-", "logger", "-p", $log_priority, "-t", $log_tag) or die "Cannot run logger process: $!\n";
+		open(STDERR, ">&STDOUT");
+	}
 
 	message(INFO, "Started logreplica process $$");
 	if ($pid_file) {

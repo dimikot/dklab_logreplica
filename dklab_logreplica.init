@@ -18,7 +18,7 @@
 ### END INIT INFO
 
 #
-# If you store dklab_logreplica in a different location, 
+# If you store dklab_logreplica in a different location,
 # it is recommended not to change CWD, but run:
 #
 # ln -s /path/to/your/dklab_logreplica /opt/dklab_logreplica
@@ -62,7 +62,8 @@ start () {
 			echo "dklab_logreplica for $CONF is already running"
 		else
 			rm -f $PIDFILE 2>/dev/null
-			cd $CWD && /usr/bin/perl $BIN $CONF -p $PIDFILE 2>&1 | logger -p `eval "echo $LOGPRI"` -t `eval "echo $LOGTAG"` &
+			cd $CWD || exit 1
+			/usr/bin/perl $BIN $CONF -p $PIDFILE --log-priority=`eval "echo $LOGPRI"` --log-tag=`eval "echo $LOGTAG"` --daemonize
 			sleep 1
 			PID=`cat $PIDFILE 2>/dev/null`
 			if [ "$PID" != "" ]; then
