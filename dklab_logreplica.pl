@@ -12,7 +12,7 @@ use POSIX;
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
 	"p=s" => \$pid_file,
-	"log-priotity=s" => \$log_priority,
+	"log-priority=s" => \$log_priority,
 	"log-tag=s" => \$log_tag,
 	"daemonize" => \$daemonize,
 );
@@ -354,6 +354,7 @@ sub main {
 		open(STDIN, "<", "/dev/null");
 		open(STDOUT, "|-", "logger", "-p", $log_priority, "-t", $log_tag) or die "Cannot run logger process: $!\n";
 		open(STDERR, ">&STDOUT");
+		$0 = "dklab_logreplica";
 	}
 
 	message(INFO, "Started logreplica process $$");
