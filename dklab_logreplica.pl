@@ -474,6 +474,10 @@ sub tail_follow {
 				$sb_sent = 1;
 			}
 			while (<F>) {
+	        		if ( !m/^[^\n]*\n/s ){
+					sleep(0.1);
+					next;
+        			}
 				if (!$sb_sent) {
 					print_scoreboard_item($sb);
 					$sb_sent = 1;
