@@ -1,6 +1,11 @@
 # What directory at the current machine to store logs to.
 destination = /var/log/cluster
 
+# The character of directories in  path of the destination files
+# can be replaced by another character. Default it is /.
+#dest_separate = _
+
+
 # Skip these log files prefixes while storing to destination directory.
 skip_destination_prefixes = /var/log:/var/lib/pgsql/data/logs
 
@@ -13,10 +18,27 @@ delay = 0.25
 # Default user to connect to remote hosts.
 user = root
 
+# Log events may be filtered. Add a regular expression to filter log events.
+# The pattern should not contain " " or ";".
+#filter = error|warn
+
+# External command which will run if the filter will succeed.
+#alarm_command = /path/script.sh.
+
+# Timeout for repeat run the alarm_command (minutes).
+# Default the value seted to  -1 (turn off).
+# Attention, for this timeout events will not come to the destination log file,
+# except for the first event.
+#repeat_command_timeout = -1
+
 # What files to monitor at all of logs source machines.
+# In this section may to add columns with
+# sertain parametrs : filter, alarm_command, repeat_command_timeout .
+# The parametrs must be separated by ";".
 [files]
 /var/log/{messages,maillog}
 /var/log/httpd/*_log
+#/path/to/log/file; filter = error|alarm ; alarm_command = script.sh repeat_command_timeout = 123
 
 # What hosts to connect to gather logs from.
 [hosts]

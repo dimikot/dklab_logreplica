@@ -8,7 +8,6 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
 use POSIX;
 
-
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
 	"p=s" => \$pid_file,
@@ -52,7 +51,7 @@ sub read_config {
 		FILES => [],
 	);
 	while (<F>) {
-		s/[#;].*//sg;
+		s/^[\s\t]*[#;].*//sg;
 		s/^\s+|\s+$//sg;
 		next if !length;
 		if (/^\[(.*)\]/s) {
@@ -61,6 +60,7 @@ sub read_config {
 		}
 		if (!$section) {
 			my ($k, $v) = split /\s*=\s*/s, $_, 2;
+			$v =~ s#[\s;]+##sg;
 			$options{$k} = $v;
 		} elsif ($section eq "hosts") {
 			my %host = ();
@@ -80,6 +80,10 @@ sub read_config {
 			$host{host} = $_;
 			push @{$options{HOSTS}}, \%host;
 		} elsif ($section eq "files") {
+			s/[\s\t]*;[\s\t]*/;/sg;
+			s/[\s\t]*=[\s\t]*/=/sg;
+			s/;+/;/sg;
+			s/[\s\t]+//sg;
 			push @{$options{FILES}}, $_;
 		}
 	}
@@ -88,9 +92,14 @@ sub read_config {
 	$options{user} or die "Option 'user' is not specified at $file\n";
 	$options{destination} or die "Option 'destination' is not specified at $file\n";
 	$options{scoreboard} or die "Option 'scoreboard' is not specified at $file\n";
+	$options{repeat_command_timeout} ||= -1;
+	$options{alarm_command} ||= "NO";
+	$options{filter} ||= "NO";
 	$options{delay} ||= 1.0;
+	$options{dest_separate} ||= "/";
 	$options{skip_destination_prefixes} ||= undef;
 	$options{server_id} ||= md5_hex(`hostname` . $file);
+	$options{repeat_command_timeout} = $options{repeat_command_timeout} * 60 ;
 
 	message(INFO, "Loaded %s: %d hosts, %d filename wildcards", $file, scalar @{$options{HOSTS}}, scalar @{$options{FILES}});
 	return \%options;
@@ -165,7 +174,10 @@ sub child {
 			pack_scoreboard($scoreboard, $host->{host}),
 			$config->{delay},
 			$config->{server_id},
-			($host->{alias} || $host->{host})
+			($host->{alias} || $host->{host}),
+			$config->{filter},
+			$config->{repeat_command_timeout},
+			$config->{alarm_command}
 		)),
 	);
 	# We cannot get rid of escapeshellarg(), because config ssh_options
@@ -189,7 +201,6 @@ sub child {
 	close(P);
 	message(ERR, "Message from SSH watcher: $err") if $err;
 }
-
 
 sub child_monitoring_process {
 	my ($config, $host, $pipe, $ppid) = @_;
@@ -245,6 +256,15 @@ sub child_monitoring_process {
 				$cur = undef;
 			}
 		} elsif ($cur) {
+			m#<CuRRenT>alarm_command=([^<]*)</CuRRenT>#gs;
+			if ($1 ne "") {
+				$config->{filter} ='Y';
+				$config->{alarm_command}=$1;
+			}
+			s#<CuRRenT>alarm_command=[^<]*</CuRRenT>##gs;
+			if ($config->{filter} ne "NO" and $config->{alarm_command} ne "NO") {
+			   ( system "$config->{alarm_command} " . $host_prefix . "_:" . $_  ) or message(ERR, "Script " . $config->{alarm_command} . " can not exec!");
+			}
 			print OUT $host_prefix . ": " . $_;
 			$cur->{pos} += length;
 		}
@@ -270,6 +290,7 @@ sub get_dest_file {
 		}
 	}
 	$path =~ s{^/+}{}sg;
+	$path =~ s#/#$config->{dest_separate}#g;
 	$path = $config->{destination} . "/" . $path;
 	mkpath(dirname($path), 0, 0755);
 	return $path;
@@ -401,6 +422,7 @@ main();
 #######################################################################
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
+use Time::HiRes;
 
 my $my_host = "?";
 
@@ -417,7 +439,7 @@ sub my_warn($) {
 }
 
 sub DATA_main {
-	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host) = @ARGV;
+	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host, $filter, $repeat_command_timeout, $alarm_command) = @ARGV;
 	$my_host = $p_my_host;
 	defined $p_wildcards or my_die "Filename wildcards expected!\n";
 	defined $p_scoreboard or my_die "Scoreboard data expected!\n";
@@ -427,7 +449,7 @@ sub DATA_main {
 	$| = 1;
 	# Allow no more than 1 process from a particular server. This avoids
 	# stalled scripts when connection is not closed properly.
-	my $lock_file = "/var/run/dklab_logreplica.$p_server_id.lock";
+	my $lock_file = "/tmp/logreplica.$p_server_id.lock";
 	open(LOCK, "+>>", $lock_file) or my_die "Cannot write to $lock_file: $!\n";
 	if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
 		seek(LOCK, 0, 0);
@@ -445,16 +467,28 @@ sub DATA_main {
 	select((select(LOCK), $| = 1)[0]);
 	print LOCK $$ . "\n";
 	# Do not close LOCK!
-	tail_follow($wildcards, $scoreboard_hash, $p_delay);
+	tail_follow($wildcards, $scoreboard_hash, $p_delay, $filter, $repeat_command_timeout, $alarm_command);
 }
 
 sub tail_follow {
-	my ($wildcards, $scoreboard_hash, $delay) = @_;
+	my ($wildcards, $scoreboard_hash, $delay, $filter, $repeat_command_timeout, $alarm_command) = @_;
 	my $last_ping = 0;
+	my %time_sb = ();
+	my %time_cmd = ();
 	while (1) {
 		my @files = wildcards_to_pathes($wildcards);
 		my $printed = 0;
-		foreach my $file (@files) {
+		foreach my $file_ (@files) {
+			my $fltr = $filter;
+			my $command = $alarm_command;
+			my $timeout = $repeat_command_timeout;
+			my @fils = split /;/ ,$file_;
+			my $file = $fils[0];
+			foreach my $i (@fils) {
+				$fltr = $1 if $i =~ m/^filter=(.*)/ ;
+				$command = $1 if $i =~ m/^alarm_command=(.*)/ ;
+				$timeout= $1 if $i =~ m/^repeat_command_timeout=(.*)/ ;
+			}
 			my @stat = stat($file);
 			my $inode = $stat[1];
 			my $sb_sent = 0;
@@ -467,22 +501,51 @@ sub tail_follow {
 			if ($inode == $sb->{inode}) {
 				seek(F, $sb->{pos}, 0);
 			} else {
-				my_warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
+				if ( $fltr eq "NO" ) {
+					my_warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
+				}
 				$sb->{pos} = 0;
 				$sb->{inode} = $inode;
 				print_scoreboard_item($sb);
 				$sb_sent = 1;
 			}
+			$time_sb{$file} ||= 0;
+			$time_cmd{$file} ||= 0;
 			while (<F>) {
-	        		if ( !m/^[^\n]*\n/s ){
+				if ( !m/^[^\n]*\n/s ){
 					sleep(0.1);
 					next;
-        			}
+				}
+				my $fl = 0;
+				my $note = "";
+				if ($fltr ne "NO") {
+					if ( !m#$fltr# ) {
+						#set fl
+						$fl = 1;
+					} elsif ( $command ne "NO" ) {
+							#command is in config
+							if ($time_cmd{$file} > ( time() - $timeout )){
+								$fl = 1;
+							} else {
+								$time_cmd{$file} = time();
+								$note = "<CuRRenT>alarm_command=".$command."</CuRRenT>".$file . "__:";
+							}
+					}
+					if ( $fl ) {
+						# send periodic sb
+						$sb->{pos} += length;
+						$_ = '';
+						if ($time_sb{$file} > (time() - 5)) {
+							next;
+						}
+						$time_sb{$file} = time();
+					}
+				}
 				if (!$sb_sent) {
 					print_scoreboard_item($sb);
 					$sb_sent = 1;
 				}
-				print;
+				print $note . $_;
 				$printed = 1;
 				$sb->{pos} += length;
 			}
@@ -494,6 +557,7 @@ sub tail_follow {
 				$last_ping = time();
 			}
 			select(undef, undef, undef, $delay);
+
 		}
 	}
 }
@@ -503,9 +567,23 @@ sub print_scoreboard_item {
 	print "==> " . ($item? pack_scoreboard_item($item) : "") . " <==\n";
 }
 
+#sub wildcards_to_pathes {
+#    my ($wildcards) = @_;
+#    return map { glob $_ } @$wildcards;
+#}
+
 sub wildcards_to_pathes {
 	my ($wildcards) = @_;
-	return map { glob $_ } @$wildcards;
+	my @mapfile;
+	foreach my $i (@$wildcards) {
+		my @ii = split /;/,$i,2;
+		foreach my $j (glob $ii[0]) {
+			my $tail="";
+			$tail=";".$ii[1] if $ii[1];
+			push @mapfile,$j.$tail;
+		}
+	}
+return @mapfile;
 }
 
 sub unpack_scoreboard {
@@ -555,3 +633,4 @@ EOT
 }}}
 #######################################################################
 #######################################################################
+
