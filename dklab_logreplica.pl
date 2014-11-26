@@ -111,7 +111,6 @@ sub escapeshellarg {
 	my $q = qq{\x27};
 	my $qq = qq{\x22};
 	return $arg if $arg !~ m/[\s$q$qq\\]/s && length($arg);
-	# aaa'bbb  =>  'aaa'\'bbb'
 	$arg =~ s/$q/$q\\$q$q/sg;
 	return $q . $arg . $q;
 }
@@ -256,12 +255,12 @@ sub child_monitoring_process {
 				$cur = undef;
 			}
 		} elsif ($cur) {
-			m#<CuRRenT>alarm_command=([^<]*)</CuRRenT>#gs;
+			m#<FiLe_CoMmAnD>alarm_command=([^<]*)</FiLe_CoMmAnD>#gs;
 			if ($1 ne "") {
 				$config->{filter} ='Y';
 				$config->{alarm_command}=$1;
 			}
-			s#<CuRRenT>alarm_command=[^<]*</CuRRenT>##gs;
+			s#<FiLe_CoMmAnD>alarm_command=[^<]*</FiLe_CoMmAnD>##gs;
 			if ($config->{filter} ne "NO" and $config->{alarm_command} ne "NO") {
 			   ( system "$config->{alarm_command} " . $host_prefix . "_:" . $_  ) or message(ERR, "Script " . $config->{alarm_command} . " can not exec!");
 			}
@@ -520,15 +519,14 @@ sub tail_follow {
 				my $note = "";
 				if ($fltr ne "NO") {
 					if ( !m#$fltr# ) {
-						#set fl
 						$fl = 1;
 					} elsif ( $command ne "NO" ) {
-							#command is in config
+							#command is in the config
 							if ($time_cmd{$file} > ( time() - $timeout )){
 								$fl = 1;
 							} else {
 								$time_cmd{$file} = time();
-								$note = "<CuRRenT>alarm_command=".$command."</CuRRenT>".$file . "__:";
+								$note = "<FiLe_CoMmAnD>alarm_command=".$command."</FiLe_CoMmAnD>".$file . "__:";
 							}
 					}
 					if ( $fl ) {
@@ -566,11 +564,6 @@ sub print_scoreboard_item {
 	my ($item) = @_;
 	print "==> " . ($item? pack_scoreboard_item($item) : "") . " <==\n";
 }
-
-#sub wildcards_to_pathes {
-#    my ($wildcards) = @_;
-#    return map { glob $_ } @$wildcards;
-#}
 
 sub wildcards_to_pathes {
 	my ($wildcards) = @_;
