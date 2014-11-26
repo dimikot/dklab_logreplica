@@ -449,7 +449,7 @@ sub DATA_main {
 	$| = 1;
 	# Allow no more than 1 process from a particular server. This avoids
 	# stalled scripts when connection is not closed properly.
-	my $lock_file = "/tmp/logreplica.$p_server_id.lock";
+	my $lock_file = "/tmp/logreplica.$p_server_id.lock"; # /tmp available to all users
 	open(LOCK, "+>>", $lock_file) or my_die "Cannot write to $lock_file: $!\n";
 	if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
 		seek(LOCK, 0, 0);
