@@ -513,7 +513,7 @@ sub tail_follow {
 			$time_cmd{$file} ||= 0;
 			while (<F>) {
 				if ( !m/^[^\n]*\n/s ){
-					sleep(0.1);
+				#	usleep(10);
 					next;
 				}
 				my $fl = 0;
