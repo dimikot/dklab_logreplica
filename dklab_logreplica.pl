@@ -256,7 +256,7 @@ sub child_monitoring_process {
 				$cur = undef;
 			}
 		} elsif ($cur) {
-			m#<FiLe_CoMmAnD>alarm_command=([^<]*);file=([^<]*)</FiLe_CoMmAnD>#gs;
+			m#<FiLe_CoMmAnD>alarm_command=([^;]*);file=([^<]*)</FiLe_CoMmAnD>#gs;
 			my $file = '';
 			if ($1 ne "") {
 				$config->{filter} ='Y'; 
