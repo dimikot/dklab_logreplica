@@ -483,9 +483,9 @@ sub tail_follow {
 			my $fltr = $filter;
 			my $command = $alarm_command;
 			my $timeout = $repeat_command_timeout;
-			my @fils = split /;/ ,$file_;
-			my $file = $fils[0];
-			foreach my $i (@fils) {
+			my @fls = split /;/ ,$file_;
+			my $file = $fls[0];
+			foreach my $i (@fls) {
 				$fltr = $1 if $i =~ m/^filter=(.*)/ ;
 				$command = $1 if $i =~ m/^alarm_command=(.*)/ ;
 				$timeout= $1 if $i =~ m/^repeat_command_timeout=(.*)/ ;
