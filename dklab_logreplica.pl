@@ -256,14 +256,16 @@ sub child_monitoring_process {
 				$cur = undef;
 			}
 		} elsif ($cur) {
-			m#<FiLe_CoMmAnD>alarm_command=([^<]*)</FiLe_CoMmAnD>#gs;
+			m#<FiLe_CoMmAnD>alarm_command=([^<]*);file=([^<]*)</FiLe_CoMmAnD>#gs;
+			my $file = '';
 			if ($1 ne "") {
-				$config->{filter} ='Y';
-				$config->{alarm_command}=$1;
+				$config->{filter} ='Y'; 
+				$config->{alarm_command} = $1;
+				$file = $2;
 			}
-			s#<FiLe_CoMmAnD>alarm_command=[^<]*</FiLe_CoMmAnD>##gs;
+			s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs;
 			if ($config->{filter} ne "NO" and $config->{alarm_command} ne "NO") {
-			   ( system "$config->{alarm_command} " . $host_prefix . "_:" . $_  ) or message(ERR, "Script " . $config->{alarm_command} . " can not exec!");
+			   ( system "$config->{alarm_command} " . $host_prefix . ": " .$file. ": " . $_  ) or message(ERR, "Script " . $config->{alarm_command} . " can not exec!");
 			}
 			print OUT $host_prefix . ": " . $_;
 			$cur->{pos} += length;
@@ -422,7 +424,6 @@ main();
 #######################################################################
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
-use Time::HiRes;
 
 my $my_host = "?";
 
@@ -512,31 +513,21 @@ sub tail_follow {
 			$time_sb{$file} ||= 0;
 			$time_cmd{$file} ||= 0;
 			while (<F>) {
-				if ( !m/^[^\n]*\n/s ){
-				#	usleep(10);
-					next;
-				}
-				my $fl = 0;
+				next if  !m/^[^\n]*\n/s ;
 				my $note = "";
 				if ($fltr ne "NO") {
-					if ( !m#$fltr# ) {
-						$fl = 1;
-					} elsif ( $command ne "NO" ) {
+					if ( m#$fltr# ) { 
+						if ( $command ne "NO" ) {
 							#command is in the config
-							if ($time_cmd{$file} > ( time() - $timeout )){
-								$fl = 1;
-							} else {
+							if ($time_cmd{$file} < ( time() - $timeout )){
 								$time_cmd{$file} = time();
-								$note = "<FiLe_CoMmAnD>alarm_command=".$command."</FiLe_CoMmAnD>".$file . "__:";
+								$note = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>";
 							}
-					}
-					if ( $fl ) {
-						# send periodic sb
+						}
+					} else {
 						$sb->{pos} += length;
 						$_ = '';
-						if ($time_sb{$file} > (time() - 5)) {
-							next;
-						}
+						next if ($time_sb{$file} > (time() - 2)) ;
 						$time_sb{$file} = time();
 					}
 				}
