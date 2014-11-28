@@ -502,9 +502,7 @@ sub tail_follow {
 			if ($inode == $sb->{inode}) {
 				seek(F, $sb->{pos}, 0);
 			} else {
-				if ( $fltr eq "NO" ) {
-					my_warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
-				}
+				my_warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
 				$sb->{pos} = 0;
 				$sb->{inode} = $inode;
 				print_scoreboard_item($sb);
