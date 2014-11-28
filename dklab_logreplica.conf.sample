@@ -27,8 +27,6 @@ user = root
 
 # Timeout for repeat run the alarm_command (minutes).
 # Default the value seted to  -1 (turn off).
-# Attention, for this timeout events will not come to the destination log file,
-# except for the first event.
 #repeat_command_timeout = -1
 
 # What files to monitor at all of logs source machines.
