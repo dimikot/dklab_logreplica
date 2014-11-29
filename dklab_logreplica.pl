@@ -93,12 +93,18 @@ sub read_config {
 	$options{destination} or die "Option 'destination' is not specified at $file\n";
 	$options{scoreboard} or die "Option 'scoreboard' is not specified at $file\n";
 	$options{repeat_command_timeout} ||= -1;
-	$options{alarm_command} ||= "NO";
-	$options{filter} ||= "NO";
+	$options{alarm_command} ||= 'NO';
+	$options{filter} ||= '.*';
 	$options{delay} ||= 1.0;
-	$options{dest_separate} ||= "/";
+	$options{dest_separate} ||= '/';
 	$options{skip_destination_prefixes} ||= undef;
 	$options{server_id} ||= md5_hex(`hostname` . $file);
+	if (!$options{speed_limit_filter} || ($options{speed_limit_filter} <= 0 )) {
+		$options{sleep_send_line} = 0;
+	} else {
+		$options{sleep_send_line} = 1.0/$options{speed_limit_filter};
+	}
+	delete($options{speed_limit_filter});
 	$options{repeat_command_timeout} = $options{repeat_command_timeout} * 60 ;
 
 	message(INFO, "Loaded %s: %d hosts, %d filename wildcards", $file, scalar @{$options{HOSTS}}, scalar @{$options{FILES}});
@@ -110,7 +116,7 @@ sub escapeshellarg {
 	my ($arg) = @_;
 	my $q = qq{\x27};
 	my $qq = qq{\x22};
-	return $arg if $arg !~ m/[\s$q$qq\\]/s && length($arg);
+	return $arg if $arg !~ m/[\s\|$q$qq\\]/s && length($arg);
 	# aaa'bbb  =>  'aaa'\'bbb'
 	$arg =~ s/$q/$q\\$q$q/sg;
 	return $q . $arg . $q;
@@ -177,7 +183,8 @@ sub child {
 			($host->{alias} || $host->{host}),
 			$config->{filter},
 			$config->{repeat_command_timeout},
-			$config->{alarm_command}
+			$config->{alarm_command},
+			$config->{sleep_send_line}
 		)),
 	);
 	# We cannot get rid of escapeshellarg(), because config ssh_options
@@ -264,7 +271,7 @@ sub child_monitoring_process {
 				$file = $2;
 			}
 			s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs;
-			if ($config->{filter} ne "NO" and $config->{alarm_command} ne "NO") {
+			if ($config->{filter} ne '.*' and $config->{alarm_command} ne 'NO') {
 			   ( system "$config->{alarm_command} " . $host_prefix . ": " .$file. ": " . $_  ) or message(ERR, "Script " . $config->{alarm_command} . " can not exec!");
 			}
 			print OUT $host_prefix . ": " . $_;
@@ -440,7 +447,7 @@ sub my_warn($) {
 }
 
 sub DATA_main {
-	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host, $filter, $repeat_command_timeout, $alarm_command) = @ARGV;
+	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line) = @ARGV;
 	$my_host = $p_my_host;
 	defined $p_wildcards or my_die "Filename wildcards expected!\n";
 	defined $p_scoreboard or my_die "Scoreboard data expected!\n";
@@ -468,11 +475,11 @@ sub DATA_main {
 	select((select(LOCK), $| = 1)[0]);
 	print LOCK $$ . "\n";
 	# Do not close LOCK!
-	tail_follow($wildcards, $scoreboard_hash, $p_delay, $filter, $repeat_command_timeout, $alarm_command);
+	tail_follow($wildcards, $scoreboard_hash, $p_delay, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line);
 }
 
 sub tail_follow {
-	my ($wildcards, $scoreboard_hash, $delay, $filter, $repeat_command_timeout, $alarm_command) = @_;
+	my ($wildcards, $scoreboard_hash, $delay, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line) = @_;
 	my $last_ping = 0;
 	my %time_sb = ();
 	my %time_cmd = ();
@@ -513,9 +520,9 @@ sub tail_follow {
 			while (<F>) {
 				next if  !m/^[^\n]*\n/s ;
 				my $note = "";
-				if ($fltr ne "NO") {
+				if ($fltr ne '.*') {
 					if ( m#$fltr# ) { 
-						if ( $command ne "NO" ) {
+						if ( $command ne 'NO' ) {
 							#command is in the config
 							if ($time_cmd{$file} < ( time() - $timeout )){
 								$time_cmd{$file} = time();
@@ -524,10 +531,11 @@ sub tail_follow {
 						}
 					} else {
 						$sb->{pos} += length;
-						$_ = '';
 						next if ($time_sb{$file} > (time() - 2)) ;
 						$time_sb{$file} = time();
+						$_ = '';
 					}
+					select(undef, undef, undef, $sleep_send_line) if $sleep_send_line != 0;
 				}
 				if (!$sb_sent) {
 					print_scoreboard_item($sb);
@@ -545,7 +553,6 @@ sub tail_follow {
 				$last_ping = time();
 			}
 			select(undef, undef, undef, $delay);
-
 		}
 	}
 }
