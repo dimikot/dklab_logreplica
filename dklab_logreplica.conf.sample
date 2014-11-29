@@ -1,9 +1,9 @@
 # What directory at the current machine to store logs to.
 destination = /var/log/cluster
 
-# The character of directories in  path of the destination files
-# can be replaced by another character. Default it is /.
-#dest_separate = _
+# The separate character of directories for the path of the destination files which 
+# can be replaced by another character. Default it is '/'.
+#dest_separate = /
 
 
 # Skip these log files prefixes while storing to destination directory.
@@ -19,14 +19,19 @@ delay = 0.25
 user = root
 
 # Log events may be filtered. Add a regular expression to filter log events.
+# By default, the filter is disabled, it is equivalent to setting the value of  '.*'
 # The pattern should not contain " " or ";".
-#filter = error|warn
+#filter = .*
+
+# Speed limit transmission lines per second of the filter.
+# By default, the speed limit is disabled, it is equivalent to setting the value of '-1'
+#speed_limit_filter = -1
 
 # External command which will run if the filter will succeed.
-#alarm_command = /path/script.sh.
+#alarm_command = /path/to/my/script.sh.
 
-# Timeout for repeat run the alarm_command (minutes).
-# Default the value seted to  -1 (turn off).
+# The timeout for repeat run the alarm_command (minutes).
+# By default, the value seted to  -1 (turn off).
 #repeat_command_timeout = -1
 
 # What files to monitor at all of logs source machines.
