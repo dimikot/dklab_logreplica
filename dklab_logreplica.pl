@@ -93,7 +93,7 @@ sub read_config {
 	$options{destination} or die "Option 'destination' is not specified at $file\n";
 	$options{scoreboard} or die "Option 'scoreboard' is not specified at $file\n";
 	$options{repeat_command_timeout} ||= -1;
-	$options{alarm_command} ||= 'NO';
+	$options{alarm_command} ||= "NO";
 	$options{filter} ||= '.*';
 	$options{delay} ||= 1.0;
 	$options{dest_separate} ||= '/';
@@ -116,7 +116,7 @@ sub escapeshellarg {
 	my ($arg) = @_;
 	my $q = qq{\x27};
 	my $qq = qq{\x22};
-	return $arg if $arg !~ m/[\s\|$q$qq\\]/s && length($arg);
+	return $arg if $arg !~ m/[\s\|<>;$q$qq\\]/s && length($arg);
 	# aaa'bbb  =>  'aaa'\'bbb'
 	$arg =~ s/$q/$q\\$q$q/sg;
 	return $q . $arg . $q;
@@ -263,16 +263,17 @@ sub child_monitoring_process {
 				$cur = undef;
 			}
 		} elsif ($cur) {
-			m#<FiLe_CoMmAnD>alarm_command=([^;]*);file=([^<]*)</FiLe_CoMmAnD>#gs;
-			my $file = '';
-			if ($1 ne "") {
-				$config->{filter} ='Y'; 
-				$config->{alarm_command} = $1;
-				$file = $2;
-			}
-			s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs;
-			if ($config->{filter} ne '.*' and $config->{alarm_command} ne 'NO') {
-			   ( system "$config->{alarm_command} " . $host_prefix . ": " .$file. ": " . $_  ) or message(ERR, "Script " . $config->{alarm_command} . " can not exec!");
+			if (m#<FiLe_CoMmAnD>alarm_command=([^;]*);file=([^<]*)</FiLe_CoMmAnD>#s) {
+				my $file = "";
+				if ($1 ne "") {
+					$config->{filter} ="Y"; 
+					$config->{alarm_command} = $1;
+					$file = $2;
+				}
+				s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs;
+				if ($config->{filter} ne '.*' and $config->{alarm_command} ne "NO") {
+				   system "$config->{alarm_command} " . escapeshellarg("$host_prefix: $file: $_")  ||  message(ERR, "Script " . $config->{alarm_command} . " can not exec!");
+				}
 			}
 			print OUT $host_prefix . ": " . $_;
 			$cur->{pos} += length;
@@ -522,7 +523,7 @@ sub tail_follow {
 				my $note = "";
 				if ($fltr ne '.*') {
 					if ( m#$fltr# ) { 
-						if ( $command ne 'NO' ) {
+						if ( $command ne "NO" ) {
 							#command is in the config
 							if ($time_cmd{$file} < ( time() - $timeout )){
 								$time_cmd{$file} = time();
@@ -533,7 +534,7 @@ sub tail_follow {
 						$sb->{pos} += length;
 						next if ($time_sb{$file} > (time() - 2)) ;
 						$time_sb{$file} = time();
-						$_ = '';
+						$_ = "";
 					}
 					select(undef, undef, undef, $sleep_send_line) if $sleep_send_line != 0;
 				}
