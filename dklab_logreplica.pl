@@ -301,7 +301,7 @@ sub get_dest_file {
 		}
 	}
 	$path =~ s{^/+}{}sg;
-	$path =~ s#/#$config->{dest_separate}#g; # here the character replace on another character
+	$path =~ s#/#$config->{dest_separate}#g; # here the character replaces on another character
 	$path = $config->{destination} . "/" . $path;
 	mkpath(dirname($path), 0, 0755);
 	return $path;
@@ -524,8 +524,7 @@ sub tail_follow {
 				my $notice = "";
 				if ($fltr ne '.*') {
 					if ( m#$fltr# ) { 
-						if ( $command ne "#" ) {
-							#There is command in the config file
+						if ( $command ne "#" ) { #There is command in the config file
 							if ($time_cmd{$file} < ( time() - $timeout )){
 								$time_cmd{$file} = time();
 								$notice = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>"; # pack parametrs into the message
