@@ -92,7 +92,7 @@ sub read_config {
 	$options{destination} or die "Option 'destination' is not specified at $file\n";
 	$options{scoreboard} or die "Option 'scoreboard' is not specified at $file\n";
 	$options{repeat_command_timeout} ||= -1;
-	$options{alarm_command} ||= "NO";
+	$options{alarm_command} ||= "#";
 	$options{filter} ||= '.*';
 	$options{delay} ||= 1.0;
 	$options{dest_separate} ||= '/';
@@ -272,7 +272,7 @@ sub child_monitoring_process {
 					$file = $2;
 				}
 				s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs;
-				if ($filter ne '.*' and $command ne "NO") {
+				if ($filter ne '.*' and $command ne "#") {
 					system "$command " . escapeshellarg("$host_prefix: $file: $_")  or die "Cannot exec command: $command: $!\n";
 				}
 			}
@@ -524,7 +524,7 @@ sub tail_follow {
 				my $notice = "";
 				if ($fltr ne '.*') {
 					if ( m#$fltr# ) { 
-						if ( $command ne "NO" ) {
+						if ( $command ne "#" ) {
 							#command is in the config
 							if ($time_cmd{$file} < ( time() - $timeout )){
 								$time_cmd{$file} = time();
