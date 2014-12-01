@@ -115,7 +115,7 @@ sub escapeshellarg {
 	my ($arg) = @_;
 	my $q = qq{\x27};
 	my $qq = qq{\x22};
-	return $arg if $arg !~ m/[\s\|<>;\*\[\]\{\}\(\)\&\%\$\@\~\?$q$qq\\]/s && length($arg);
+	return $arg if $arg !~ m/[\s\|<>;\*\[\]\{\}\(\)\&\%\$\@\~\?$q$qq\\#]/s && length($arg);
 	# aaa'bbb  =>  'aaa'\''bbb'
 	$arg =~ s/$q/$q\\$q$q/sg;
 	return $q . $arg . $q;
