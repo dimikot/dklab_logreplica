@@ -28,7 +28,8 @@ user = root
 #speed_limit_filter = -1
 
 # External command which will run if the filter will succeed.
-#alarm_command = /path/to/my/script.sh.
+By default, the command  is disabled, it is equivalent to setting the value of '#'
+#alarm_command = #
 
 # The timeout for repeat run the alarm_command (minutes).
 # By default, the value seted to  -1 (turn off).
