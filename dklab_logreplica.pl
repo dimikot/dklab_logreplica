@@ -262,16 +262,16 @@ sub child_monitoring_process {
 				$cur = undef;
 			}
 		} elsif ($cur) {
-			if (m#<FiLe_CoMmAnD>alarm_command=([^;]+);file=([^<]+)</FiLe_CoMmAnD>#s) {
+			if (m#<FiLe_CoMmAnD>alarm_command=([^;]+);file=([^<]+)</FiLe_CoMmAnD>#s) { # catch a certain sequence of characters and parameters parse
 				my $file = "";
 				my $filter = $config->{filter};
 				my $command = $config->{alarm_command};
 				if ($1) {
-					$filter = "yes"; 
+					$filter = "yes"; # or any word other than "./*"
 					$command = $1;
 					$file = $2;
 				}
-				s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs;
+				s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs; # Then wipe
 				if ($filter ne '.*' and $command ne "#") {
 					system "$command " . escapeshellarg("$host_prefix: $file: $_")  or die "Cannot exec command: $command: $!\n";
 				}
@@ -301,7 +301,7 @@ sub get_dest_file {
 		}
 	}
 	$path =~ s{^/+}{}sg;
-	$path =~ s#/#$config->{dest_separate}#g;
+	$path =~ s#/#$config->{dest_separate}#g; # here the character replace on another character
 	$path = $config->{destination} . "/" . $path;
 	mkpath(dirname($path), 0, 0755);
 	return $path;
@@ -494,7 +494,7 @@ sub tail_follow {
 			my $timeout = $repeat_command_timeout;
 			my @fls = split /;/ ,$file_;
 			my $file = $fls[0];
-			foreach my $i (@fls) {
+			foreach my $i (@fls) { # it override the global parametrs
 				$fltr = $1 if $i =~ m/^filter=(.*)/ ;
 				$command = $1 if $i =~ m/^alarm_command=(.*)/ ;
 				$timeout= $1 if $i =~ m/^repeat_command_timeout=(.*)/ ;
@@ -525,10 +525,10 @@ sub tail_follow {
 				if ($fltr ne '.*') {
 					if ( m#$fltr# ) { 
 						if ( $command ne "#" ) {
-							#command is in the config
+							#There is command in the config file
 							if ($time_cmd{$file} < ( time() - $timeout )){
 								$time_cmd{$file} = time();
-								$notice = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>";
+								$notice = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>"; # pack parametrs into the message
 							}
 						}
 					} else {
@@ -537,7 +537,8 @@ sub tail_follow {
 						$time_sb{$file} = time();
 						$_ = "";
 					}
-					select(undef, undef, undef, $sleep_send_line) if $sleep_send_line != 0;
+				
+					select(undef, undef, undef, $sleep_send_line) if $sleep_send_line != 0; # Speed limit transmission 
 				}
 				if (!$sb_sent) {
 					print_scoreboard_item($sb);
