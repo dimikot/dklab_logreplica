@@ -1,11 +1,6 @@
 # What directory at the current machine to store logs to.
 destination = /var/log/cluster
 
-# The separate character of directories for the path of the destination files which 
-# can be replaced by another character. Default it is '/'.
-#dest_separate = /
-
-
 # Skip these log files prefixes while storing to destination directory.
 skip_destination_prefixes = /var/log:/var/lib/pgsql/data/logs
 
@@ -18,27 +13,37 @@ delay = 0.25
 # Default user to connect to remote hosts.
 user = root
 
+################################### Additional features ##########################################
+##################################################################################################
+#
+# The separate character of directories for the path of the destination files which 
+# can be replaced by another character. Default it is '/'.
+#dest_separate = /
+#
 # Log events may be filtered. Add a regular expression to filter log events.
 # By default, the filter is disabled, it is equivalent to setting the value of  '.*'
 # The pattern should not contain " " or ";".
 #filter = .*
-
+#
 # Speed limit transmission lines per second of the filter.
 # By default, the speed limit is disabled, it is equivalent to setting the value of '-1'
 #speed_limit_filter = -1
-
+#
 # External command which will run if the filter will succeed.
-By default, the command  is disabled, it is equivalent to setting the value of '#'
+# By default, the command  is disabled, it is equivalent to setting the value of '#'
 #alarm_command = #
-
+#
 # The timeout for repeat run the alarm_command (minutes).
-# By default, the value seted to  -1 (turn off).
+# By default, the value setted to  -1 (turn off).
 #repeat_command_timeout = -1
+#
+# The above features are globally but may be overridden in section of [files] for a particular string
+#####################################################################################################
 
 # What files to monitor at all of logs source machines.
 # In this section may to add columns with
-# sertain parametrs : filter, alarm_command, repeat_command_timeout .
-# The parametrs must be separated by ";".
+# certain parameters : filter, alarm_command, repeat_command_timeout .
+# The parameters must be separated by ";".
 [files]
 /var/log/{messages,maillog}
 /var/log/httpd/*_log
