@@ -262,7 +262,7 @@ sub child_monitoring_process {
 				$cur = undef;
 			}
 		} elsif ($cur) {
-			if (m#<FiLe_CoMmAnD>alarm_command=([^;]*);file=([^<]*)</FiLe_CoMmAnD>#s) {
+			if (m#<FiLe_CoMmAnD>alarm_command=([^;]+);file=([^<]+)</FiLe_CoMmAnD>#s) {
 				my $file = "";
 				my $filter = $config->{filter};
 				my $command = $config->{alarm_command};
@@ -521,14 +521,14 @@ sub tail_follow {
 			$time_cmd{$file} ||= 0;
 			while (<F>) {
 				next if  !m/^[^\n]*\n/s ;
-				my $note = "";
+				my $notice = "";
 				if ($fltr ne '.*') {
 					if ( m#$fltr# ) { 
 						if ( $command ne "NO" ) {
 							#command is in the config
 							if ($time_cmd{$file} < ( time() - $timeout )){
 								$time_cmd{$file} = time();
-								$note = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>";
+								$notice = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>";
 							}
 						}
 					} else {
@@ -543,7 +543,7 @@ sub tail_follow {
 					print_scoreboard_item($sb);
 					$sb_sent = 1;
 				}
-				print $note . $_;
+				print $notice . $_;
 				$printed = 1;
 				$sb->{pos} += length;
 			}
