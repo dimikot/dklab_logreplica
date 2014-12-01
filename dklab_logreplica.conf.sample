@@ -16,7 +16,7 @@ user = root
 ################################### Additional features ##########################################
 ##################################################################################################
 #
-# The separate character of directories for the path of the destination files which 
+# Character that separates directories in the destination files path, which 
 # can be replaced by another character. Default it is '/'.
 #dest_separate = /
 #
@@ -34,14 +34,14 @@ user = root
 #alarm_command = #
 #
 # The timeout for repeat run the alarm_command (minutes).
-# By default, the value setted to  -1 (turn off).
+# By default, the value is set to  -1 (turn off).
 #repeat_command_timeout = -1
 #
-# The above features are globally but may be overridden in section of [files] for a particular string
+# The above features are global but may be overridden in section of [files] for a particular string
 #####################################################################################################
 
 # What files to monitor at all of logs source machines.
-# In this section may to add columns with
+# In this section one may to add columns with
 # certain parameters : filter, alarm_command, repeat_command_timeout .
 # The parameters must be separated by ";".
 [files]
