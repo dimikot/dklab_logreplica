@@ -459,7 +459,7 @@ sub DATA_main {
 	$| = 1;
 	# Allow no more than 1 process from a particular server. This avoids
 	# stalled scripts when connection is not closed properly.
-	my $lock_file = "/tmp/logreplica.$p_server_id.lock"; # /tmp available to all users
+	my $lock_file = "/tmp/logreplica.$p_server_id.lock"; # /tmp availables to all users
 	open(LOCK, "+>>", $lock_file) or my_die "Cannot write to $lock_file: $!\n";
 	if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
 		seek(LOCK, 0, 0);
@@ -494,7 +494,7 @@ sub tail_follow {
 			my $timeout = $repeat_command_timeout;
 			my @fls = split /;/ ,$file_;
 			my $file = $fls[0];
-			foreach my $i (@fls) { # it override the global parametrs
+			foreach my $i (@fls) { # it overrides the global parametrs
 				$fltr = $1 if $i =~ m/^filter=(.*)/ ;
 				$command = $1 if $i =~ m/^alarm_command=(.*)/ ;
 				$timeout= $1 if $i =~ m/^repeat_command_timeout=(.*)/ ;
