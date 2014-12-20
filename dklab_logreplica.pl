@@ -7,7 +7,6 @@ use File::Basename;
 use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
 use POSIX;
-use Data::Dumper;
 
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
