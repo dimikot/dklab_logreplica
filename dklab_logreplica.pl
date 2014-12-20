@@ -7,6 +7,7 @@ use File::Basename;
 use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
 use POSIX;
+use Data::Dumper;
 
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
@@ -48,10 +49,16 @@ sub read_config {
 	my %options = (
 		HOSTS => [],
 		FILES => [],
+		GROUP => {},
 	);
+	my %file_group = ();
+	my $cur_group;
 	while (<F>) {
-		s/^[\s\t]*[#;].*//sg;
+		s/^[\s]*[#;].*//sg;
 		s/^\s+|\s+$//sg;
+		s/;+/;/sg;
+		s/;+\s*$//sg;
+		s/[\s]+//sg;
 		next if !length;
 		if (/^\[(.*)\]/s) {
 			$section = $1;
@@ -63,6 +70,9 @@ sub read_config {
 			$options{$k} = $v;
 		} elsif ($section eq "hosts") {
 			my %host = ();
+			my @host_ = split /;/ , $_;
+			$host{group} = $1  if $host_[1] =~ s/group=(.*)//g ;
+			$_ = $host_[0];
 			if (m{^([^=\s]+) \s*=\s* (.*)}sx) {
 				$host{alias} = $1;
 				$_ = $2;
@@ -79,13 +89,12 @@ sub read_config {
 			$host{host} = $_;
 			push @{$options{HOSTS}}, \%host;
 		} elsif ($section eq "files") {
-			s/[\s\t]*;[\s\t]*/;/sg;
-			s/[\s\t]*=[\s\t]*/=/sg;
-			s/;+/;/sg;
-			s/[\s\t]+//sg;
 			push @{$options{FILES}}, $_;
+		} elsif ($section =~ m/group_files\w*/s) {
+			push @{$file_group{$section}}, $_;
 		}
 	}
+	$options{GROUP} = \%file_group if %file_group;
 
 	# Check options and assign defaults.
 	$options{user} or die "Option 'user' is not specified at $file\n";
@@ -104,7 +113,6 @@ sub read_config {
 		$options{sleep_send_line} = 1.0/$options{speed_limit_filter};
 	}
 	delete($options{speed_limit_filter});
-	$options{repeat_command_timeout} = $options{repeat_command_timeout} * 60 ;
 
 	message(INFO, "Loaded %s: %d hosts, %d filename wildcards", $file, scalar @{$options{HOSTS}}, scalar @{$options{FILES}});
 	return \%options;
@@ -146,7 +154,7 @@ sub spawn_all {
 			next;
 		} else {
 			# Child.
-			if (!eval { child($config, {%$host}, $ppid); 1 }) {
+			if (!eval { child($config, {%$host}, $ppid, $host->{group} ||= undef); 1 }) {
 				die $@ if $@;
 			}
 			exit();
@@ -156,7 +164,7 @@ sub spawn_all {
 
 
 sub child {
-	my ($config, $host, $ppid) = @_;
+	my ($config, $host, $ppid, $group) = @_;
 	my $pid; # ssh pid
 
 	# Prepare signals.
@@ -164,6 +172,9 @@ sub child {
 	$SIG{INT} = $SIG{QUIT} = $SIG{TERM} = $SIG{HUP} = sub { $pid && kill 9, $pid; exit(1); };
 	$pid_file = undef;
 
+	# replace files to group_files 
+	$config->{FILES}=$config->{GROUP}{$group} if $group && $config->{GROUP}{$group};
+	
 	# Create command-line to run SSH.
 	my $scoreboard = load_scoreboard($config);
 	my @cmd = (
@@ -433,21 +444,17 @@ main();
 #######################################################################
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
-
 my $my_host = "?";
-
 sub my_die($) {
 	my ($s) = @_;
 	$s =~ s/^/$my_host says: /mg;
 	die $s;
 }
-
 sub my_warn($) {
 	my ($s) = @_;
 	$s =~ s/^/$my_host says: /mg;
 	warn $s;
 }
-
 sub DATA_main {
 	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line) = @ARGV;
 	$my_host = $p_my_host;
@@ -479,7 +486,6 @@ sub DATA_main {
 	# Do not close LOCK!
 	tail_follow($wildcards, $scoreboard_hash, $p_delay, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line);
 }
-
 sub tail_follow {
 	my ($wildcards, $scoreboard_hash, $delay, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line) = @_;
 	my $last_ping = 0;
@@ -499,6 +505,7 @@ sub tail_follow {
 				$command = $1 if $i =~ m/^alarm_command=(.*)/ ;
 				$timeout= $1 if $i =~ m/^repeat_command_timeout=(.*)/ ;
 			}
+			$timeout *= 60;
 			my @stat = stat($file);
 			my $inode = $stat[1];
 			my $sb_sent = 0;
@@ -558,12 +565,10 @@ sub tail_follow {
 		}
 	}
 }
-
 sub print_scoreboard_item {
 	my ($item) = @_;
 	print "==> " . ($item? pack_scoreboard_item($item) : "") . " <==\n";
 }
-
 sub wildcards_to_pathes {
 	my ($wildcards) = @_;
 	my @mapfile;
@@ -577,7 +582,6 @@ sub wildcards_to_pathes {
 	}
 return @mapfile;
 }
-
 sub unpack_scoreboard {
 	my ($packed) = @_;
 	my @scoreboard = ();
@@ -588,7 +592,6 @@ sub unpack_scoreboard {
 	}
 	return \@scoreboard;
 }
-
 sub pack_scoreboard {
 	my ($scoreboard, $only_host) = @_;
 	return join(
@@ -598,7 +601,6 @@ sub pack_scoreboard {
 		@$scoreboard
 	) . "\n";
 }
-
 sub unpack_scoreboard_item {
 	my ($packed, $def_host) = @_;
 	$packed =~ s/^\s+|\s+$//sg;
@@ -610,19 +612,15 @@ sub unpack_scoreboard_item {
 		host => $host || $def_host,
 	};
 }
-
 sub pack_scoreboard_item {
 	my ($item) = @_;
 	return "$item->{file}|$item->{inode}|$item->{pos}|" . ($item->{host}||""); #89
 }
-
 sub unpack_wildcards {
 	my ($packed) = @_;
 	return [ grep { chomp; $_ } split /\n/s, $packed ];
 }
-
 EOT
 }}}
 #######################################################################
 #######################################################################
-
