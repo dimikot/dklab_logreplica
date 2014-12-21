@@ -8,6 +8,7 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
 use POSIX;
 
+
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
 	"p=s" => \$pid_file,
@@ -273,18 +274,10 @@ sub child_monitoring_process {
 			}
 		} elsif ($cur) {
 			if (m#<FiLe_CoMmAnD>alarm_command=([^;]+);file=([^<]+)</FiLe_CoMmAnD>#s) { # catch a certain sequence of characters and parameters parse
-				my $file = "";
-				my $filter = $config->{filter};
-				my $command = $config->{alarm_command};
-				if ($1) {
-					$filter = "yes"; # or any word other than "./*"
-					$command = $1;
-					$file = $2;
-				}
-				s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs; # Then wipe
-				if ($filter ne '.*' and $command ne "#") {
-					system "$command " . escapeshellarg("$host_prefix: $file: $_")  or die "Cannot exec command: $command: $!\n";
-				}
+				my	$command = $1;
+				my	$file = $2;
+				s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs; # Then to wipe
+				system "$command " . escapeshellarg("$host_prefix: $file: $_")  or die "Cannot exec command: $command: $!\n";
 			}
 			print OUT $host_prefix . ": " . $_;
 			$cur->{pos} += length;
@@ -312,6 +305,8 @@ sub get_dest_file {
 	}
 	$path =~ s{^/+}{}sg;
 	$path =~ s#/#$config->{dest_separate}#g; # here the character replaces on another character
+	my @p = split /;/s, $path;
+	$path = $p[0];
 	$path = $config->{destination} . "/" . $path;
 	mkpath(dirname($path), 0, 0755);
 	return $path;
@@ -443,6 +438,7 @@ main();
 #######################################################################
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
+use Digest::MD5 qw(md5_hex);
 my $my_host = "?";
 sub my_die($) {
 	my ($s) = @_;
@@ -508,7 +504,8 @@ sub tail_follow {
 			my @stat = stat($file);
 			my $inode = $stat[1];
 			my $sb_sent = 0;
-			my $sb = $scoreboard_hash->{$file} ||= { file => $file, inode => $inode, pos => $stat[7] };
+			my $tail = ";" . md5_hex("$fltr");
+			my $sb = $scoreboard_hash->{$file . $tail} ||= { file => $file . $tail, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
 				my_warn "Cannot open $file: $!\n";
