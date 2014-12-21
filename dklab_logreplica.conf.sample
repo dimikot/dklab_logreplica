@@ -71,5 +71,6 @@ user = root
 # In this section one may to add columns with a single parameter group=group_files... .
 # The parameter must be separated by ";".
 [hosts]
+alias_of_server=user@server:port
 first=machine1.example.com
 second=nobody@machine2.example.com
