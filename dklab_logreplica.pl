@@ -8,7 +8,6 @@ use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
 use POSIX;
 
-
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
 	"p=s" => \$pid_file,
@@ -439,6 +438,7 @@ main();
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
 use Digest::MD5 qw(md5_hex);
+
 my $my_host = "?";
 sub my_die($) {
 	my ($s) = @_;
@@ -504,8 +504,8 @@ sub tail_follow {
 			my @stat = stat($file);
 			my $inode = $stat[1];
 			my $sb_sent = 0;
-			my $tail = ";" . md5_hex("$fltr");
-			my $sb = $scoreboard_hash->{$file . $tail} ||= { file => $file . $tail, inode => $inode, pos => $stat[7] };
+			my $tail = $file . ";" . md5_hex("$fltr");
+			my $sb = $scoreboard_hash->{$tail} ||= { file => $tail, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
 				my_warn "Cannot open $file: $!\n";
@@ -520,7 +520,7 @@ sub tail_follow {
 				print_scoreboard_item($sb);
 				$sb_sent = 1;
 			}
-			$time_sb{$file} ||= 0;
+			$time_sb{$tail} ||= 0;
 			$time_cmd{$file} ||= 0;
 			while (<F>) {
 				next if  !m/^[^\n]*\n/s ;
@@ -528,15 +528,15 @@ sub tail_follow {
 				if ($fltr ne '.*') {
 					if ( m#$fltr# ) { 
 						if ( $command ne "#" ) { #There is command in the config file
-							if ($time_cmd{$file} < ( time() - $timeout )){
-								$time_cmd{$file} = time();
+							if ($time_cmd{$tail} < ( time() - $timeout )){
+								$time_cmd{$tail} = time();
 								$notice = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>"; # pack parametrs into the message
 							}
 						}
 					} else {
 						$sb->{pos} += length;
-						next if ($time_sb{$file} > (time() - 2)) ;
-						$time_sb{$file} = time();
+						next if ($time_sb{$tail} > (time() - 2)) ;
+						$time_sb{$tail} = time();
 						$_ = "";
 					}
 				
