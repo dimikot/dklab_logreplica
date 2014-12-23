@@ -53,11 +53,11 @@ sub read_config {
 	my %file_group = ();
 	my $cur_group;
 	while (<F>) {
-		s/^[\s]*[#;].*//sg;
-		s/^\s+|\s+$//sg;
-		s/;+/;/sg;
-		s/;+\s*$//sg;
-		s/[\s]+//sg;
+                s/^\s*[#;].*//sg;
+                s/^\s+//sg;
+                s/\s*([;=])\s*/$1/sg;
+                s/;+/;/sg;
+                s/;*\s*$//sg;
 		next if !length;
 		if (/^\[(.*)\]/s) {
 			$section = $1;
@@ -70,7 +70,7 @@ sub read_config {
 		} elsif ($section eq "hosts") {
 			my %host = ();
 			my @host_ = split /;/ , $_;
-			$host{group} = $1  if $host_[1] =~ s/group=(.*)//g ;
+			$host{group} = $1  if $host_[1] && $host_[1] =~ s/group=(.*)//g ;
 			$_ = $host_[0];
 			if (m{^([^=\s]+) \s*=\s* (.*)}sx) {
 				$host{alias} = $1;
