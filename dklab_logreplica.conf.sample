@@ -22,7 +22,6 @@ user = root
 #
 # Log events may be filtered. Add a regular expression to filter log events.
 # By default, the filter is disabled, it is equivalent to setting the value of  '.*'
-# The pattern should not contain " " or ";".
 #filter = .*
 #
 # Speed limit transmission lines per second of the filter.
@@ -45,14 +44,15 @@ user = root
 # In this section and the section [files] one may to add columns with
 # certain parameters : filter, alarm_command, repeat_command_timeout .
 # The parameters must be separated by ";".
-#[group_files...]
+#[group_files_<unique suffix>]
 # list of files
+#
 # for axample:
-#[group_files_abc]
+#[group_files_1]
 #/path/to/file1
 #/path/to/file2
-# and
-#[group_files_for_test]
+# 
+#[group_files_abc]
 #/path/to/file3
 # ...
 #
