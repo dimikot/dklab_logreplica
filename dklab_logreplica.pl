@@ -72,7 +72,6 @@ sub read_config {
                             $fl = '/.*/';
                         }
                     }
-system 'echo "'.$st.$fl.$en.'" >>./zz;';                    
                     $_ = $st.encode_base64($fl,'').$en;
                 }
 		next if !length;
