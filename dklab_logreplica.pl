@@ -7,6 +7,7 @@ use File::Basename;
 use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
 use POSIX;
+use MIME::Base64;
 
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
@@ -58,6 +59,22 @@ sub read_config {
                 s/\s*([;=])\s*/$1/sg;
                 s/;+/;/sg;
                 s/;*\s*$//sg;
+                if ( m/^(.*?[^_]filter=)(.*?)(;(alarm_command|repeat_command).*)*$/ ) {
+                    my $st='';
+                    my $fl='/.*/';
+                    my $en='';
+                    $st = $1;
+                    $fl = $2 if $2;
+                    $en = $3 if $3;
+                    if ( $fl =~ m/^(.).*?(.)[i]*$/ ) {
+                        if ( $1 ne $2 ) {
+                            message(ERR,"Format of 'filter=$fl' is incorrect!");
+                            $fl = '/.*/';
+                        }
+                    }
+system 'echo "'.$st.$fl.$en.'" >>./zz;';                    
+                    $_ = $st.encode_base64($fl,'').$en;
+                }
 		next if !length;
 		if (/^\[(.*)\]/s) {
 			$section = $1;
@@ -101,7 +118,7 @@ sub read_config {
 	$options{scoreboard} or die "Option 'scoreboard' is not specified at $file\n";
 	$options{repeat_command_timeout} ||= -1;
 	$options{alarm_command} ||= "#";
-	$options{filter} ||= '.*';
+	$options{filter} ||= '/.*/';
 	$options{delay} ||= 1.0;
 	$options{dest_separate} ||= '/';
 	$options{skip_destination_prefixes} ||= undef;
@@ -437,7 +454,7 @@ main();
 #######################################################################
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
-use Digest::MD5 qw(md5_hex);
+use MIME::Base64;
 
 my $my_host = "?";
 sub my_die($) {
@@ -504,7 +521,8 @@ sub tail_follow {
 			my @stat = stat($file);
 			my $inode = $stat[1];
 			my $sb_sent = 0;
-			my $tail = $file . ";" . md5_hex("$fltr");
+			my $fltr_dec = decode_base64($fltr);
+			my $tail = $file . ";" .$fltr;
 			my $sb = $scoreboard_hash->{$tail} ||= { file => $tail, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
@@ -525,8 +543,8 @@ sub tail_follow {
 			while (<F>) {
 				next if  !m/^[^\n]*\n/s ;
 				my $notice = "";
-				if ($fltr ne '.*') {
-					if ( m#$fltr# ) { 
+				if ($fltr_dec ne '/.*/') {
+					if ( eval("\$_ =~ m$fltr_dec ") ) { 
 						if ( $command ne "#" ) { #There is command in the config file
 							if ($time_cmd{$tail} < ( time() - $timeout )){
 								$time_cmd{$tail} = time();

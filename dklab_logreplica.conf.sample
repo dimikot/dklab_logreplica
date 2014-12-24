@@ -20,9 +20,11 @@ user = root
 # can be replaced by another character. Default it is '/'.
 #dest_separate = /
 #
-# Log events may be filtered. Add a regular expression to filter log events.
-# By default, the filter is disabled, it is equivalent to setting the value of  '.*'
-#filter = .*
+# Log events may be filtered. Add a perl regular expression to filter log events.
+# One can use any pair of non-whitespace characters as delimiters, for example,'//' or '##'.
+# Behind the second separator can add 'i' which does case-insensitive pattern matching.
+# By default, the filter is disabled, it is equivalent to setting the value of  '/.*/'
+#filter = /.*/
 #
 # Speed limit transmission lines per second of the filter.
 # By default, the speed limit is disabled, it is equivalent to setting the value of '-1'
@@ -45,7 +47,7 @@ user = root
 # certain parameters : filter, alarm_command, repeat_command_timeout .
 # The parameters must be separated by ";".
 #[group_files_<unique suffix>]
-# list of files
+# The list of files
 #
 # for axample:
 #[group_files_1]
