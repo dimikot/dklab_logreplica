@@ -529,6 +529,7 @@ sub tail_follow {
 				next;
 			}
 			if ($inode == $sb->{inode}) {
+				$sb->{pos} = 0 if $sb->{pos} > $stat[7]; # If the file was cleared.
 				seek(F, $sb->{pos}, 0);
 			} else {
 				my_warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
