@@ -292,7 +292,7 @@ sub child_monitoring_process {
 				my	$command = $1;
 				my	$file = $2;
 				s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs; # Then to wipe
-				system "$command " . escapeshellarg("$host_prefix: $file: $_")  or die "Cannot exec command: $command: $!\n";
+				system "$command " . escapeshellarg("$host_prefix: $file: $_")  or message(ERR,"Cannot exec command: $command: $!\n");
 			}
 			print OUT $host_prefix . ": " . $_;
 			$cur->{pos} += length;
@@ -521,7 +521,7 @@ sub tail_follow {
 			my $inode = $stat[1];
 			my $sb_sent = 0;
 			my $fltr_dec = decode_base64($fltr);
-			my $tail = $file . ";" .$fltr;
+			my $tail = $file . ";" .$fltr; # This is need for create unique name of a scoreboard file for the pair a file and a filter.
 			my $sb = $scoreboard_hash->{$tail} ||= { file => $tail, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
@@ -538,13 +538,13 @@ sub tail_follow {
 				$sb_sent = 1;
 			}
 			$time_sb{$tail} ||= 0;
-			$time_cmd{$file} ||= 0;
+			$time_cmd{$tail} ||= 0;
 			while (<F>) {
 				next if  !m/^[^\n]*\n/s ;
 				my $notice = "";
 				if ($fltr_dec ne '/.*/') {
 					if ( eval("\$_ =~ m$fltr_dec ") ) { 
-						if ( $command ne "#" ) { #There is command in the config file
+						if ( $command ne "#" ) { #There is a command in the config file
 							if ($time_cmd{$tail} < ( time() - $timeout )){
 								$time_cmd{$tail} = time();
 								$notice = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>"; # pack parametrs into the message
@@ -557,7 +557,7 @@ sub tail_follow {
 						$_ = "";
 					}
 				
-					select(undef, undef, undef, $sleep_send_line) if $sleep_send_line != 0; # Speed limit transmission 
+					select(undef, undef, undef, $sleep_send_line) if $sleep_send_line != 0; # Set speed limit transmission 
 				}
 				if (!$sb_sent) {
 					print_scoreboard_item($sb);
