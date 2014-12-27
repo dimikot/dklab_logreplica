@@ -81,7 +81,6 @@ sub read_config {
 		}
 		if (!$section) {
 			my ($k, $v) = split /\s*=\s*/s, $_, 2;
-			$v =~ s#[\s;]+##sg;
 			$options{$k} = $v;
 		} elsif ($section eq "hosts") {
 			my %host = ();
