@@ -7,7 +7,7 @@ use File::Basename;
 use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
 use POSIX;
-use MIME::Base64;
+use MIME::Base64 qw(encode_base64);
 
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
@@ -453,7 +453,7 @@ main();
 #######################################################################
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
-use MIME::Base64;
+use MIME::Base64 qw( decode_base64 );
 
 my $my_host = "?";
 sub my_die($) {
