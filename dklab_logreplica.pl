@@ -616,7 +616,8 @@ sub pack_scoreboard {
 }
 sub unpack_scoreboard_item {
 	my ($packed, $def_host) = @_;
-	$packed =~ s/^\s+|\s+$//sg;
+	$packed =~ s/^\s+//sg;
+	$packed =~ s/\s+$//sg;
 	my ($fn, $inode, $pos, $host) = split /\|/, $packed, 4;
 	return {
 		file => $fn,
