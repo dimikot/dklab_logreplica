@@ -414,8 +414,8 @@ sub main {
 	}
 
 	my $config = read_config($conf);
-	die "No hosts specified in $conf!\n" if !$config->{HOSTS};
-	die "No files to monitor specified in $conf!\n" if !$config->{FILES};
+	die "No hosts specified in $conf!\n" if scalar(@{$config->{HOSTS}}) == 0;
+	die "No files to monitor specified in $conf!\n" if (scalar(@{$config->{FILES}}) == 0) && ((keys %{$config->{GROUP}}) == 0);
 
 	my %pids = ();
 
