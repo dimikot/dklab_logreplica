@@ -7,7 +7,7 @@ use File::Basename;
 use Getopt::Long;
 use Digest::MD5 qw(md5_hex);
 use POSIX;
-
+use MIME::Base64 qw(encode_base64);
 
 my ($pid_file, $log_priority, $log_tag, $daemonize);
 GetOptions(
@@ -16,7 +16,6 @@ GetOptions(
 	"log-tag=s" => \$log_tag,
 	"daemonize" => \$daemonize,
 );
-
 
 
 sub usage {
@@ -50,10 +49,31 @@ sub read_config {
 	my %options = (
 		HOSTS => [],
 		FILES => [],
+		GROUP => {},
 	);
+	my %file_group = ();
+	my $cur_group;
 	while (<F>) {
-		s/[#;].*//sg;
-		s/^\s+|\s+$//sg;
+                s/^\s*[#;].*//sg;
+                s/^\s+//sg;
+                s/\s*([;=])\s*/$1/sg;
+                s/;+/;/sg;
+                s/;*\s*$//sg;
+                if ( m/^(.*?[^_]filter=)(.*?)(;(alarm_command|repeat_command).*)*$/ ) {
+                    my $st='';
+                    my $fl='/.*/';
+                    my $en='';
+                    $st = $1;
+                    $fl = $2 if $2;
+                    $en = $3 if $3;
+                    if ( $fl =~ m/^(.).*?(.)[i]*$/ ) {
+                        if ( $1 ne $2 ) {
+                            message(ERR,"Format of 'filter=$fl' is incorrect!");
+                            $fl = '/.*/';
+                        }
+                    }
+                    $_ = $st.encode_base64($fl,'').$en;
+                }
 		next if !length;
 		if (/^\[(.*)\]/s) {
 			$section = $1;
@@ -64,6 +84,9 @@ sub read_config {
 			$options{$k} = $v;
 		} elsif ($section eq "hosts") {
 			my %host = ();
+			my @host_ = split /;/ , $_;
+			$host{group} = $1  if $host_[1] && $host_[1] =~ s/group=(.*)//g ;
+			$_ = $host_[0];
 			if (m{^([^=\s]+) \s*=\s* (.*)}sx) {
 				$host{alias} = $1;
 				$_ = $2;
@@ -81,16 +104,29 @@ sub read_config {
 			push @{$options{HOSTS}}, \%host;
 		} elsif ($section eq "files") {
 			push @{$options{FILES}}, $_;
+		} elsif ($section =~ m/group_files\w*/s) {
+			push @{$file_group{$section}}, $_;
 		}
 	}
+	$options{GROUP} = \%file_group if %file_group;
 
 	# Check options and assign defaults.
 	$options{user} or die "Option 'user' is not specified at $file\n";
 	$options{destination} or die "Option 'destination' is not specified at $file\n";
 	$options{scoreboard} or die "Option 'scoreboard' is not specified at $file\n";
+	$options{repeat_command_timeout} ||= -1;
+	$options{alarm_command} ||= "#";
+	$options{filter} ||= '/.*/';
 	$options{delay} ||= 1.0;
+	$options{dest_separate} ||= '/';
 	$options{skip_destination_prefixes} ||= undef;
 	$options{server_id} ||= md5_hex(`hostname` . $file);
+	if (!$options{speed_limit_filter} || ($options{speed_limit_filter} <= 0 )) {
+		$options{sleep_send_line} = 0;
+	} else {
+		$options{sleep_send_line} = 1.0/$options{speed_limit_filter};
+	}
+	delete($options{speed_limit_filter});
 
 	message(INFO, "Loaded %s: %d hosts, %d filename wildcards", $file, scalar @{$options{HOSTS}}, scalar @{$options{FILES}});
 	return \%options;
@@ -101,8 +137,8 @@ sub escapeshellarg {
 	my ($arg) = @_;
 	my $q = qq{\x27};
 	my $qq = qq{\x22};
-	return $arg if $arg !~ m/[\s$q$qq\\]/s && length($arg);
-	# aaa'bbb  =>  'aaa'\'bbb'
+	return $arg if $arg !~ m/[\s\|<>;\*\[\]\{\}\(\)\&\%\$\@\~\?$q$qq\\#]/s && length($arg);
+	# aaa'bbb  =>  'aaa'\''bbb'
 	$arg =~ s/$q/$q\\$q$q/sg;
 	return $q . $arg . $q;
 }
@@ -132,7 +168,7 @@ sub spawn_all {
 			next;
 		} else {
 			# Child.
-			if (!eval { child($config, {%$host}, $ppid); 1 }) {
+			if (!eval { child($config, {%$host}, $ppid, $host->{group} ||= undef); 1 }) {
 				die $@ if $@;
 			}
 			exit();
@@ -142,7 +178,7 @@ sub spawn_all {
 
 
 sub child {
-	my ($config, $host, $ppid) = @_;
+	my ($config, $host, $ppid, $group) = @_;
 	my $pid; # ssh pid
 
 	# Prepare signals.
@@ -150,6 +186,9 @@ sub child {
 	$SIG{INT} = $SIG{QUIT} = $SIG{TERM} = $SIG{HUP} = sub { $pid && kill 9, $pid; exit(1); };
 	$pid_file = undef;
 
+	# replace files to group_files 
+	$config->{FILES}=$config->{GROUP}{$group} if $group && $config->{GROUP}{$group};
+	
 	# Create command-line to run SSH.
 	my $scoreboard = load_scoreboard($config);
 	my @cmd = (
@@ -165,7 +204,11 @@ sub child {
 			pack_scoreboard($scoreboard, $host->{host}),
 			$config->{delay},
 			$config->{server_id},
-			($host->{alias} || $host->{host})
+			($host->{alias} || $host->{host}),
+			$config->{filter},
+			$config->{repeat_command_timeout},
+			$config->{alarm_command},
+			$config->{sleep_send_line}
 		)),
 	);
 	# We cannot get rid of escapeshellarg(), because config ssh_options
@@ -189,7 +232,6 @@ sub child {
 	close(P);
 	message(ERR, "Message from SSH watcher: $err") if $err;
 }
-
 
 sub child_monitoring_process {
 	my ($config, $host, $pipe, $ppid) = @_;
@@ -245,6 +287,12 @@ sub child_monitoring_process {
 				$cur = undef;
 			}
 		} elsif ($cur) {
+			if (m#<FiLe_CoMmAnD>alarm_command=([^;]+);file=([^<]+)</FiLe_CoMmAnD>#s) { # catch a certain sequence of characters and parameters parse
+				my	$command = $1;
+				my	$file = $2;
+				s#<FiLe_CoMmAnD>[^<]*</FiLe_CoMmAnD>##gs; # Then to wipe
+				system "$command " . escapeshellarg("$host_prefix: $file: $_")  or message(ERR,"Cannot exec command: $command: $!\n");
+			}
 			print OUT $host_prefix . ": " . $_;
 			$cur->{pos} += length;
 		}
@@ -270,6 +318,9 @@ sub get_dest_file {
 		}
 	}
 	$path =~ s{^/+}{}sg;
+	$path =~ s#/#$config->{dest_separate}#g; # here the character replaces on another character
+	my @p = split /;/s, $path;
+	$path = $p[0];
 	$path = $config->{destination} . "/" . $path;
 	mkpath(dirname($path), 0, 0755);
 	return $path;
@@ -363,8 +414,8 @@ sub main {
 	}
 
 	my $config = read_config($conf);
-	die "No hosts specified in $conf!\n" if !$config->{HOSTS};
-	die "No files to monitor specified in $conf!\n" if !$config->{FILES};
+	die "No hosts specified in $conf!\n" if scalar(@{$config->{HOSTS}}) == 0;
+	die "No files to monitor specified in $conf!\n" if (scalar(@{$config->{FILES}}) == 0) && ((keys %{$config->{GROUP}}) == 0);
 
 	my %pids = ();
 
@@ -401,23 +452,21 @@ main();
 #######################################################################
 sub DATA {{{ return <<'EOT';
 use Fcntl qw(:flock);
+use MIME::Base64 qw( decode_base64 );
 
 my $my_host = "?";
-
 sub my_die($) {
 	my ($s) = @_;
 	$s =~ s/^/$my_host says: /mg;
 	die $s;
 }
-
 sub my_warn($) {
 	my ($s) = @_;
 	$s =~ s/^/$my_host says: /mg;
 	warn $s;
 }
-
 sub DATA_main {
-	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host) = @ARGV;
+	my ($p_wildcards, $p_scoreboard, $p_delay, $p_server_id, $p_my_host, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line) = @ARGV;
 	$my_host = $p_my_host;
 	defined $p_wildcards or my_die "Filename wildcards expected!\n";
 	defined $p_scoreboard or my_die "Scoreboard data expected!\n";
@@ -427,7 +476,7 @@ sub DATA_main {
 	$| = 1;
 	# Allow no more than 1 process from a particular server. This avoids
 	# stalled scripts when connection is not closed properly.
-	my $lock_file = "/var/run/dklab_logreplica.$p_server_id.lock";
+	my $lock_file = "/tmp/logreplica.$p_server_id.lock"; # /tmp availables to all users
 	open(LOCK, "+>>", $lock_file) or my_die "Cannot write to $lock_file: $!\n";
 	if (!flock(LOCK, LOCK_EX | LOCK_NB)) {
 		seek(LOCK, 0, 0);
@@ -445,26 +494,41 @@ sub DATA_main {
 	select((select(LOCK), $| = 1)[0]);
 	print LOCK $$ . "\n";
 	# Do not close LOCK!
-	tail_follow($wildcards, $scoreboard_hash, $p_delay);
+	tail_follow($wildcards, $scoreboard_hash, $p_delay, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line);
 }
-
 sub tail_follow {
-	my ($wildcards, $scoreboard_hash, $delay) = @_;
+	my ($wildcards, $scoreboard_hash, $delay, $filter, $repeat_command_timeout, $alarm_command, $sleep_send_line) = @_;
 	my $last_ping = 0;
+	my %time_sb = ();
+	my %time_cmd = ();
 	while (1) {
 		my @files = wildcards_to_pathes($wildcards);
 		my $printed = 0;
-		foreach my $file (@files) {
+		foreach my $file_ (@files) {
+			my $fltr = $filter;
+			my $command = $alarm_command;
+			my $timeout = $repeat_command_timeout;
+			my @fls = split /;/ ,$file_;
+			my $file = $fls[0];
+			foreach my $i (@fls) { # it overrides the global parametrs
+				$fltr = $1 if $i =~ m/^filter=(.*)/ ;
+				$command = $1 if $i =~ m/^alarm_command=(.*)/ ;
+				$timeout= $1 if $i =~ m/^repeat_command_timeout=(.*)/ ;
+			}
+			$timeout *= 60;
 			my @stat = stat($file);
 			my $inode = $stat[1];
 			my $sb_sent = 0;
-			my $sb = $scoreboard_hash->{$file} ||= { file => $file, inode => $inode, pos => $stat[7] };
+			my $fltr_dec = decode_base64($fltr);
+			my $tail = $file . ";" .$fltr; # This is need for create unique name of a scoreboard file for the pair a file and a filter.
+			my $sb = $scoreboard_hash->{$tail} ||= { file => $tail, inode => $inode, pos => $stat[7] };
 			-f $file or next;
 			if (!open(local *F, $file)) {
 				my_warn "Cannot open $file: $!\n";
 				next;
 			}
 			if ($inode == $sb->{inode}) {
+				$sb->{pos} = 0 if $sb->{pos} > $stat[7]; # If the file was cleared.
 				seek(F, $sb->{pos}, 0);
 			} else {
 				my_warn "File $sb->{host}:$file rotated, reading from the beginning (old_inode=$sb->{inode}, new_inode=$inode, old_pos=$sb->{pos}, new_pos=0).\n";
@@ -473,12 +537,33 @@ sub tail_follow {
 				print_scoreboard_item($sb);
 				$sb_sent = 1;
 			}
+			$time_sb{$tail} ||= 0;
+			$time_cmd{$tail} ||= 0;
 			while (<F>) {
+				next if  !m/^[^\n]*\n/s ;
+				my $notice = "";
+				if ($fltr_dec ne '/.*/') {
+					if ( eval("\$_ =~ m$fltr_dec ") ) { 
+						if ( $command ne "#" ) { #There is a command in the config file
+							if ($time_cmd{$tail} < ( time() - $timeout )){
+								$time_cmd{$tail} = time();
+								$notice = "<FiLe_CoMmAnD>alarm_command=".$command.";file=".$file."</FiLe_CoMmAnD>"; # pack parametrs into the message
+							}
+						}
+					} else {
+						$sb->{pos} += length;
+						next if ($time_sb{$tail} > (time() - 2)) ;
+						$time_sb{$tail} = time();
+						$_ = "";
+					}
+				
+					select(undef, undef, undef, $sleep_send_line) if $sleep_send_line != 0; # Set speed limit transmission 
+				}
 				if (!$sb_sent) {
 					print_scoreboard_item($sb);
 					$sb_sent = 1;
 				}
-				print;
+				print $notice . $_;
 				$printed = 1;
 				$sb->{pos} += length;
 			}
@@ -493,17 +578,23 @@ sub tail_follow {
 		}
 	}
 }
-
 sub print_scoreboard_item {
 	my ($item) = @_;
 	print "==> " . ($item? pack_scoreboard_item($item) : "") . " <==\n";
 }
-
 sub wildcards_to_pathes {
 	my ($wildcards) = @_;
-	return map { glob $_ } @$wildcards;
+	my @mapfile;
+	foreach my $i (@$wildcards) {
+		my @ii = split /;/,$i,2;
+		foreach my $j (glob $ii[0]) {
+			my $tail="";
+			$tail=";".$ii[1] if $ii[1];
+			push @mapfile,$j.$tail;
+		}
+	}
+return @mapfile;
 }
-
 sub unpack_scoreboard {
 	my ($packed) = @_;
 	my @scoreboard = ();
@@ -514,7 +605,6 @@ sub unpack_scoreboard {
 	}
 	return \@scoreboard;
 }
-
 sub pack_scoreboard {
 	my ($scoreboard, $only_host) = @_;
 	return join(
@@ -524,10 +614,10 @@ sub pack_scoreboard {
 		@$scoreboard
 	) . "\n";
 }
-
 sub unpack_scoreboard_item {
 	my ($packed, $def_host) = @_;
-	$packed =~ s/^\s+|\s+$//sg;
+	$packed =~ s/^\s+//sg;
+	$packed =~ s/\s+$//sg;
 	my ($fn, $inode, $pos, $host) = split /\|/, $packed, 4;
 	return {
 		file => $fn,
@@ -536,17 +626,14 @@ sub unpack_scoreboard_item {
 		host => $host || $def_host,
 	};
 }
-
 sub pack_scoreboard_item {
 	my ($item) = @_;
 	return "$item->{file}|$item->{inode}|$item->{pos}|" . ($item->{host}||""); #89
 }
-
 sub unpack_wildcards {
 	my ($packed) = @_;
 	return [ grep { chomp; $_ } split /\n/s, $packed ];
 }
-
 EOT
 }}}
 #######################################################################

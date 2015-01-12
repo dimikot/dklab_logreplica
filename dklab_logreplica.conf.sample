@@ -13,12 +13,66 @@ delay = 0.25
 # Default user to connect to remote hosts.
 user = root
 
+################################### Additional features ##########################################
+##################################################################################################
+#
+# Character that separates directories in the destination files path, which 
+# can be replaced by another character. Default it is '/'.
+#dest_separate = /
+#
+# Log events may be filtered. Add a perl regular expression to filter log events.
+# One can use any pair of non-whitespace characters as delimiters, for example,'//' or '##'.
+# Behind the second separator can add 'i' which does case-insensitive pattern matching.
+# By default, the filter is disabled, it is equivalent to setting the value of  '/.*/'
+#filter = /.*/
+#
+# Speed limit transmission lines per second of the filter.
+# By default, the speed limit is disabled, it is equivalent to setting the value of '-1'
+#speed_limit_filter = -1
+#
+# External command which will run if the filter will succeed.
+# The event sends as parameter for the command. 
+# By default, the command  is disabled, it is equivalent to setting the value of '#'
+#alarm_command = #
+#
+# The timeout for repeat run the alarm_command (minutes).
+# By default, the value is set to  -1 (turn off).
+#repeat_command_timeout = -1
+#
+# The above features are global but may be overridden in section of [files] for a particular string
+#
+# The groups with list of files which can to replace the list of files from global section [files] for a sertain host.
+# This is described below in section [host].
+# In this section and the section [files] one may to add columns with
+# certain parameters : filter, alarm_command, repeat_command_timeout .
+# The parameters must be separated by ";".
+#[group_files_<unique suffix>]
+# The list of files
+#
+# for axample:
+#[group_files_1]
+#/path/to/file1
+#/path/to/file2
+# 
+#[group_files_abc]
+#/path/to/file3
+# ...
+#
+#####################################################################################################
+
 # What files to monitor at all of logs source machines.
+# In this section one may to add columns with
+# certain parameters : filter, alarm_command, repeat_command_timeout .
+# The parameters must be separated by ";".
 [files]
 /var/log/{messages,maillog}
 /var/log/httpd/*_log
+#/path/to/log/file; filter = error|alarm ; alarm_command = script.sh repeat_command_timeout = 123
 
 # What hosts to connect to gather logs from.
+# In this section one may to add columns with a single parameter group=group_files... .
+# The parameter must be separated by ";".
 [hosts]
+alias_of_server=user@server:port
 first=machine1.example.com
 second=nobody@machine2.example.com
